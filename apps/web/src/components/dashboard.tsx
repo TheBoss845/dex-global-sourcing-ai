@@ -240,11 +240,12 @@ export function Dashboard() {
           Global Sourcing Assistant
         </h1>
         <p className="mt-3 text-sm text-dex-muted">
-          Sign in with your work email address to continue.
+          Sign in with your <span className="font-medium text-dex-fg">@dex.com</span> work email.
+          Personal addresses like Gmail are not allowed.
         </p>
         <form onSubmit={(e) => void signIn(e)} className="mt-6 space-y-3">
           <label className="block text-sm font-medium" htmlFor="work-email">
-            Work email
+            DEX work email
           </label>
           <input
             id="work-email"
@@ -252,7 +253,7 @@ export function Dashboard() {
             value={emailInput}
             onChange={(e) => setEmailInput(e.target.value)}
             className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
-            placeholder="you@company.com"
+            placeholder="you@dex.com"
             required
             autoComplete="email"
           />

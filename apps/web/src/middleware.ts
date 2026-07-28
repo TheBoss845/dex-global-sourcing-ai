@@ -30,8 +30,7 @@ export async function middleware(request: NextRequest) {
   if (!authConfigured()) {
     return NextResponse.json(
       {
-        error:
-          'Server misconfigured: set AUTH_SECRET and DEX_ALLOWED_EMAILS for production sign-in',
+        error: 'Server misconfigured: set AUTH_SECRET for production sign-in',
       },
       { status: 503 },
     );

@@ -23,5 +23,6 @@ export async function GET(request: Request) {
     configured: authConfigured(),
     email: session.ok ? session.email ?? null : null,
     signedIn: Boolean(session.ok),
+    allowedDomain: '@dex.com',
   });
 }

@@ -31,14 +31,15 @@ TAVILY_API_KEY=tvly-...
 OPENAI_API_KEY=sk-...
 AI_ENABLED=true
 RESULT_LIMIT=10
-# Production email sign-in (comma-separated). Domain allowlist: @company.com
-DEX_ALLOWED_EMAILS=you@company.com
+# Production: only @dex.com emails can sign in. Set a random cookie secret:
 AUTH_SECRET=long-random-string
+# Optional: limit to specific DEX users (otherwise any @dex.com works)
+# DEX_ALLOWED_EMAILS=you@dex.com
 ```
 
 **Supported pages:** public HTML product pages that expose a manufacturer part number (JSON-LD, labeled fields, or clear product URL). Bot-walled / JS-only distributor pages may fail honestly until a browser fetcher is added.
 
-**Sign-in:** In production, users sign in with an allowed **work email** (not an API key).
+**Sign-in:** In production, users sign in with an **@dex.com** email only (Gmail and other domains are blocked).
 
 **Health:** `GET /api/health`
 

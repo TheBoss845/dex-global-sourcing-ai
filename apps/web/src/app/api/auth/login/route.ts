@@ -4,6 +4,7 @@ import {
   authRequired,
   createSessionToken,
   isAllowedEmail,
+  isDexEmail,
   normalizeEmail,
   sessionSecret,
 } from '@/lib/auth';
@@ -15,10 +16,7 @@ export async function POST(request: Request) {
 
   if (!authConfigured()) {
     return NextResponse.json(
-      {
-        error:
-          'Server misconfigured: set AUTH_SECRET and DEX_ALLOWED_EMAILS (comma-separated emails)',
-      },
+      { error: 'Server misconfigured: set AUTH_SECRET for signed-in sessions' },
       { status: 503 },
     );
   }
@@ -32,12 +30,19 @@ export async function POST(request: Request) {
 
   const email = normalizeEmail(body.email ?? '');
   if (!email || !email.includes('@')) {
-    return NextResponse.json({ error: 'Enter a valid work email address' }, { status: 400 });
+    return NextResponse.json({ error: 'Enter a valid @dex.com work email' }, { status: 400 });
+  }
+
+  if (!isDexEmail(email)) {
+    return NextResponse.json(
+      { error: 'Only @dex.com email addresses can sign in' },
+      { status: 401 },
+    );
   }
 
   if (!isAllowedEmail(email)) {
     return NextResponse.json(
-      { error: 'That email is not authorized for this assistant' },
+      { error: 'That @dex.com email is not authorized for this assistant' },
       { status: 401 },
     );
   }
