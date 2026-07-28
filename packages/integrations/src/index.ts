@@ -5,5 +5,5 @@ export type { PartIdentityDraft, IdentityEvidence } from './extractors/identity.
 export { TavilySearchProvider } from './search/tavily.js';
 export { HttpFetcher } from './fetch/http.js';
 export { extractSupplyItNowPart } from './extractors/supplyitnow.js';
-export { extractGenericOffer, extractProductImage } from './extractors/generic.js';
+export { extractContactEmail, extractGenericOffer, extractProductImage } from './extractors/generic.js';
 export { extractProductIdentity } from './extractors/identity.js';

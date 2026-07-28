@@ -57,6 +57,7 @@ type OfferRow = {
     domain: string;
     country: string | null;
     website: string | null;
+    contactEmail?: string | null;
   };
 };
 
@@ -945,6 +946,12 @@ export function Dashboard() {
                 </span>
               </div>
             ) : null}
+            <a
+              href="/help"
+              className="rounded-lg border border-dex-border px-3 py-1.5 text-sm font-medium text-dex-muted transition hover:text-dex-fg"
+            >
+              Help
+            </a>
             <ThemeToggle />
             {signedInEmail ? (
               <button
@@ -1731,6 +1738,14 @@ export function Dashboard() {
                             <p className="text-xs text-dex-muted">
                               {offer.supplier.country ?? offer.supplier.domain}
                             </p>
+                            {offer.supplier.contactEmail ? (
+                              <a
+                                href={`mailto:${offer.supplier.contactEmail}`}
+                                className="text-xs text-dex-accent hover:underline"
+                              >
+                                {offer.supplier.contactEmail}
+                              </a>
+                            ) : null}
                           </div>
                         </div>
                       </td>

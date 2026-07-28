@@ -14,6 +14,7 @@ import {
 } from '@dex/ai';
 import {
   TavilySearchProvider,
+  extractContactEmail,
   extractGenericOffer,
   extractProductIdentity,
   extractProductImage,
@@ -1039,6 +1040,7 @@ export async function runExtractStage(
       }
 
       const known = KNOWN_DISTRIBUTORS[candidate.domain];
+      const contactEmail = extractContactEmail(page.body);
       const supplier = await prisma.supplier.upsert({
         where: { domain: candidate.domain },
         create: {
@@ -1046,10 +1048,12 @@ export async function runExtractStage(
           name: draft.supplierName ?? known?.name ?? candidate.domain,
           website: `https://${candidate.domain}`,
           country: draft.country ?? known?.country ?? guessCountry(candidate.domain),
+          contactEmail: contactEmail ?? null,
         },
         update: {
           name: draft.supplierName ?? known?.name ?? undefined,
           country: draft.country ?? known?.country ?? undefined,
+          ...(contactEmail ? { contactEmail } : {}),
         },
       });
 

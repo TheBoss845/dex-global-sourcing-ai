@@ -11,6 +11,7 @@ type PartBlock = {
   imageUrl: string | null;
   offers: Array<{
     vendor: string;
+    email: string | null;
     country: string | null;
     priceUsd: string | null;
     lineTotal: string | null;
@@ -49,6 +50,7 @@ export default async function BatchReportPage({
         const usd = offer.priceUsd != null ? Number(offer.priceUsd) : null;
         return {
           vendor: offer.supplier.name ?? offer.supplier.domain,
+          email: offer.supplier.contactEmail ?? null,
           country: offer.supplier.country,
           priceUsd: usd != null ? `$${usd.toFixed(2)}` : null,
           lineTotal:
@@ -132,7 +134,14 @@ export default async function BatchReportPage({
                 {block.offers.map((offer, i) => (
                   <tr key={offer.url} className={i % 2 ? 'bg-[#f2f5f9]' : ''}>
                     <td className="px-3 py-1.5">{i + 1}</td>
-                    <td className="px-3 py-1.5 font-medium">{offer.vendor}</td>
+                    <td className="px-3 py-1.5 font-medium">
+                      {offer.vendor}
+                      {offer.email ? (
+                        <span className="block text-xs font-normal text-[#1d5bd8]">
+                          {offer.email}
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-1.5">{offer.country ?? '—'}</td>
                     <td className="px-3 py-1.5 font-semibold">{offer.priceUsd ?? 'On request'}</td>
                     {block.quantity != null ? (

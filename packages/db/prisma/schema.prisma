@@ -177,7 +177,8 @@ model JobCandidate {
 }
 
 model Supplier {
-  id        String   @id @default(cuid())
+  id           String   @id @default(cuid())
+  contactEmail String?  @map("contact_email")
   domain    String   @unique
   name      String?
   website   String?

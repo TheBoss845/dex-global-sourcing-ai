@@ -49,6 +49,7 @@ type ReportRow = {
   quantity: string;
   vendorRank: string;
   vendor: string;
+  vendorEmail: string;
   country: string;
   price: string;
   currency: string;
@@ -95,6 +96,7 @@ export async function GET(request: Request, { params }: Params) {
         quantity,
         vendorRank: '—',
         vendor: job.errorMessage ? `No vendors found (${job.errorMessage.slice(0, 80)})` : 'No vendors found',
+        vendorEmail: '',
         country: '',
         price: '',
         currency: '',
@@ -122,6 +124,7 @@ export async function GET(request: Request, { params }: Params) {
         quantity,
         vendorRank: String(index + 1),
         vendor: sanitizeCell(offer.supplier.name ?? offer.supplier.domain),
+        vendorEmail: sanitizeCell(offer.supplier.contactEmail ?? ''),
         country: sanitizeCell(offer.supplier.country ?? ''),
         price: sanitizeCell(offer.price?.toString() ?? ''),
         currency: sanitizeCell(offer.currency ?? ''),
@@ -147,6 +150,7 @@ export async function GET(request: Request, { params }: Params) {
     { key: 'quantity', label: 'Qty' },
     { key: 'vendorRank', label: 'Vendor #' },
     { key: 'vendor', label: 'Vendor' },
+    { key: 'vendorEmail', label: 'Vendor Sales Email' },
     { key: 'country', label: 'Country' },
     { key: 'price', label: 'Price' },
     { key: 'currency', label: 'Currency' },
@@ -178,7 +182,7 @@ export async function GET(request: Request, { params }: Params) {
               ? 30
               : h.key === 'product'
                 ? 28
-                : h.key === 'vendor'
+                : h.key === 'vendor' || h.key === 'vendorEmail'
                   ? 26
                   : h.key === 'partNumber'
                     ? 24

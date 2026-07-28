@@ -154,6 +154,41 @@ function cssPriceCandidate($: cheerio.CheerioAPI): string | undefined {
   return undefined;
 }
 
+const EMAIL_JUNK =
+  /(no-?reply|donotreply|example\.|sentry|wixpress|\.png|\.jpg|\.gif|\.webp|schema\.org|yourdomain|domain\.com|email\.com|test@)/i;
+
+/** Preferred sales-contact prefixes, best first. */
+const EMAIL_PREFERENCE = ['sales', 'quote', 'rfq', 'order', 'info', 'contact', 'support', 'hello'];
+
+/**
+ * Best-effort sales/contact email from a vendor page. mailto: links are the
+ * strongest signal; falls back to visible-text addresses. Junk (no-reply,
+ * placeholders, asset names) is filtered and sales-type inboxes win.
+ */
+export function extractContactEmail(html: string): string | undefined {
+  const emails = new Set<string>();
+
+  for (const match of html.matchAll(/mailto:([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)) {
+    emails.add(match[1]!.toLowerCase());
+  }
+  // Cap the plain-text scan so giant pages stay fast.
+  const text = html.slice(0, 400_000);
+  for (const match of text.matchAll(/\b([a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+)\b/gi)) {
+    emails.add(match[1]!.toLowerCase());
+  }
+
+  const candidates = [...emails].filter(
+    (email) => email.length <= 60 && !EMAIL_JUNK.test(email),
+  );
+  if (candidates.length === 0) return undefined;
+
+  for (const prefix of EMAIL_PREFERENCE) {
+    const hit = candidates.find((email) => email.startsWith(prefix));
+    if (hit) return hit;
+  }
+  return candidates[0];
+}
+
 /**
  * Extract the main product photo URL from a page (JSON-LD image, OpenGraph,
  * twitter card, itemprop, or link rel). Returns an absolute http(s) URL.
