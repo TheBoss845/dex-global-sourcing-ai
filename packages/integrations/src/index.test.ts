@@ -33,6 +33,32 @@ const FAMILY_HTML = `<!doctype html><html><head>
 <script type="application/ld+json">{"@type":"Product","name":"UA78","mpn":"UA78","brand":"TI"}</script>
 </head><body><h1>UA78 family</h1><p>Orderables include UA7805.</p></body></html>`;
 
+const TRICKY_PRICE_HTML = `<!doctype html><html><head>
+<script type="application/ld+json">
+{"@type":"Product","name":"Widget X","sku":"W-1","offers":{"@type":"Offer","price":"24.99","priceCurrency":"EUR","availability":"https://schema.org/InStock"}}
+</script>
+</head><body>
+<span>Free shipping on orders over $50</span>
+<span class="price was-price">$99.00</span>
+<span class="price">$31.00</span>
+<p>Ships in 3 days</p>
+<div class="stock">Ships in 3 days</div>
+</body></html>`;
+
+const NO_STRUCTURED_PRICE_HTML = `<!doctype html><html><body>
+<h1>Widget Y</h1>
+<span>Shipping: $5.99</span>
+<span class="price compare-at">Was $50.00</span>
+<span class="price">$19.95</span>
+<div class="stock">In stock: 240 units</div>
+</body></html>`;
+
+const GARBAGE_PRICE_HTML = `<!doctype html><html><body>
+<h1>Widget Z</h1>
+<p>Orders over $100 ship free. Save $20 today!</p>
+<span class="price">$10.00 - $250.00</span>
+</body></html>`;
+
 describe('integrations', () => {
   it('is http-first', () => {
     assert.equal(INTEGRATIONS_FETCH_POLICY, 'http-first');
@@ -72,6 +98,26 @@ describe('integrations', () => {
     const draft = extractGenericOffer(PRODUCT_HTML);
     assert.ok(draft.priceText?.includes('0.48'));
     assert.equal(draft.stockQuantity, 12500);
+  });
+
+  it('prefers JSON-LD price over page spans and reads availability', () => {
+    const draft = extractGenericOffer(TRICKY_PRICE_HTML);
+    assert.ok(draft.priceText?.includes('24.99'), `got ${draft.priceText}`);
+    assert.equal(draft.currency, 'EUR');
+    assert.equal(draft.availability, 'In stock');
+    // "Ships in 3 days" must not become stock quantity 3.
+    assert.equal(draft.stockQuantity, null);
+  });
+
+  it('skips was/compare/shipping prices and picks the live price', () => {
+    const draft = extractGenericOffer(NO_STRUCTURED_PRICE_HTML);
+    assert.ok(draft.priceText?.includes('19.95'), `got ${draft.priceText}`);
+    assert.equal(draft.stockQuantity, 240);
+  });
+
+  it('returns no price rather than guessing from ranges and promo text', () => {
+    const draft = extractGenericOffer(GARBAGE_PRICE_HTML);
+    assert.equal(draft.priceText, undefined);
   });
 
   it('HttpFetcher blocks localhost', async () => {

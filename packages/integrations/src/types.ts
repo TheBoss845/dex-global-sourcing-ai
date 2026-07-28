@@ -16,6 +16,7 @@ export type OfferDraft = {
   description?: string;
   priceText?: string;
   currency?: string;
+  availability?: string | null;
   stockQuantity?: number | null;
   leadTime?: string | null;
   moq?: number | null;

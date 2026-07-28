@@ -30,10 +30,13 @@ export const envSchema = z.object({
 export type AppEnv = z.infer<typeof envSchema>;
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
+  const aiExplicit = source.AI_ENABLED?.toString().trim();
   // Netlify's one-click Neon database exposes NETLIFY_DATABASE_URL.
+  // AI defaults to ON whenever an OpenAI key is present (opt out with AI_ENABLED=false).
   const normalized: NodeJS.ProcessEnv = {
     ...source,
     DATABASE_URL: source.DATABASE_URL?.trim() || source.NETLIFY_DATABASE_URL?.trim() || '',
+    AI_ENABLED: aiExplicit || (source.OPENAI_API_KEY?.trim() ? 'true' : 'false'),
   };
   const parsed = envSchema.safeParse(normalized);
   if (!parsed.success) {

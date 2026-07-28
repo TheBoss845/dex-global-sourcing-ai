@@ -834,7 +834,8 @@ export async function runExtractStage(
           price: parsed ? new Prisma.Decimal(parsed.amount) : null,
           currency: parsed?.currency ?? draft.currency ?? null,
           stockQuantity: draft.stockQuantity ?? null,
-          availability: draft.stockQuantity != null ? 'in_stock_or_listed' : null,
+          availability:
+            draft.availability ?? (draft.stockQuantity != null ? 'In stock' : null),
           leadTime: draft.leadTime ?? null,
           moq: draft.moq ?? null,
           sourceType: 'scrape',
@@ -1016,6 +1017,23 @@ export async function runNormalizeStage(jobId: string, env: PipelineEnv): Promis
       where: { id: offer.id },
       data: { priceUsd: priceUsd == null ? null : new Prisma.Decimal(priceUsd) },
     });
+  }
+
+  // Deterministic sanity check: flag prices wildly off from the group median
+  // so a $2 "bargain" for a $200 part is visibly suspicious, not silently ranked first.
+  const pricedOffers = (await prisma.offer.findMany({ where: { jobId } })).filter(
+    (o) => o.priceUsd != null && Number(o.priceUsd) > 0,
+  );
+  if (pricedOffers.length >= 3) {
+    const sortedUsd = pricedOffers.map((o) => Number(o.priceUsd)).sort((a, b) => a - b);
+    const median = sortedUsd[Math.floor(sortedUsd.length / 2)]!;
+    for (const offer of pricedOffers) {
+      const usd = Number(offer.priceUsd);
+      if (usd < median * 0.15 || usd > median * 6) {
+        const flags = Array.from(new Set([...(offer.riskFlags ?? []), 'price_outlier']));
+        await prisma.offer.update({ where: { id: offer.id }, data: { riskFlags: flags } });
+      }
+    }
   }
 
   const refreshed = await prisma.offer.findMany({ where: { jobId } });

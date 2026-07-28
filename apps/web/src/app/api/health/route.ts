@@ -89,6 +89,11 @@ export async function GET() {
       ...(databaseError ? { databaseError } : {}),
       ...(missing.length ? { missing } : {}),
       queueDriver: process.env.REDIS_URL?.trim() ? 'bullmq' : 'inline',
+      ai: {
+        enabled: env.AI_ENABLED,
+        openaiKeySet: Boolean(env.OPENAI_API_KEY?.trim()),
+      },
+      tavilyKeySet: Boolean(env.TAVILY_API_KEY?.trim()),
       authRequired: process.env.NODE_ENV === 'production' || Boolean(process.env.AUTH_SECRET?.trim()),
       email: {
         resendKeySet: Boolean(

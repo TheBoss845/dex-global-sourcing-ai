@@ -1,18 +1,31 @@
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  $: 'USD',
-  '€': 'EUR',
-  '£': 'GBP',
-  '¥': 'JPY',
-  '₹': 'INR',
-  '₩': 'KRW',
-  '₽': 'RUB',
-  A$: 'AUD',
-  C$: 'CAD',
-  HK$: 'HKD',
-  S$: 'SGD',
-  R$: 'BRL',
-  NT$: 'TWD',
-};
+// Multi-character symbols must be checked before the bare '$' so that
+// "C$10" parses as CAD, not USD.
+const CURRENCY_SYMBOLS: Array<[string, string]> = [
+  ['US$', 'USD'],
+  ['HK$', 'HKD'],
+  ['NT$', 'TWD'],
+  ['A$', 'AUD'],
+  ['C$', 'CAD'],
+  ['S$', 'SGD'],
+  ['R$', 'BRL'],
+  ['$', 'USD'],
+  ['€', 'EUR'],
+  ['£', 'GBP'],
+  ['¥', 'JPY'],
+  ['₹', 'INR'],
+  ['₩', 'KRW'],
+  ['₽', 'RUB'],
+];
+
+// Only accept real ISO codes — otherwise words like "USA" or "NEW" get
+// mistaken for currencies and the USD conversion silently fails.
+const ISO_CURRENCIES = new Set([
+  'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'KRW', 'INR', 'CAD', 'AUD', 'SGD', 'HKD',
+  'TWD', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'RUB', 'BRL',
+  'MXN', 'TRY', 'ZAR', 'ILS', 'AED', 'SAR', 'THB', 'MYR', 'IDR', 'PHP', 'VND', 'NZD',
+]);
+
+const MAX_PLAUSIBLE_AMOUNT = 500_000;
 
 export type ParsedMoney = {
   amount: number;
@@ -21,26 +34,27 @@ export type ParsedMoney = {
 
 /**
  * Best-effort parse of messy price strings from product pages.
+ * Returns null rather than guessing when the string is not a plausible price.
  */
 export function parseMoney(raw: string, fallbackCurrency = 'USD'): ParsedMoney | null {
   const text = raw.replace(/\u00a0/g, ' ').trim();
   if (!text) return null;
 
   let currency = fallbackCurrency;
-  for (const [symbol, code] of Object.entries(CURRENCY_SYMBOLS)) {
+  for (const [symbol, code] of CURRENCY_SYMBOLS) {
     if (text.includes(symbol)) {
       currency = code;
       break;
     }
   }
 
-  const codeMatch = text.match(/\b([A-Z]{3})\b/);
-  if (codeMatch?.[1]) currency = codeMatch[1];
+  const codeMatch = text.toUpperCase().match(/\b([A-Z]{3})\b/);
+  if (codeMatch?.[1] && ISO_CURRENCIES.has(codeMatch[1])) currency = codeMatch[1];
 
-  const amountMatch = text.replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+  const amountMatch = text.replace(/,/g, '').match(/\d+(?:\.\d+)?/);
   if (!amountMatch) return null;
   const amount = Number(amountMatch[0]);
-  if (!Number.isFinite(amount)) return null;
+  if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_PLAUSIBLE_AMOUNT) return null;
   return { amount, currency };
 }
 

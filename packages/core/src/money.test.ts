@@ -14,6 +14,20 @@ describe('parseMoney', () => {
     assert.equal(parseMoney(''), null);
   });
 
+  it('detects multi-character currency symbols correctly', () => {
+    assert.equal(parseMoney('C$10.00')?.currency, 'CAD');
+    assert.equal(parseMoney('A$25')?.currency, 'AUD');
+    assert.equal(parseMoney('HK$100')?.currency, 'HKD');
+    assert.equal(parseMoney('US$3.50')?.currency, 'USD');
+  });
+
+  it('ignores non-ISO three-letter words and implausible amounts', () => {
+    // "USA" must not be treated as a currency code.
+    assert.equal(parseMoney('Made in USA $12.00')?.currency, 'USD');
+    assert.equal(parseMoney('$0.00'), null);
+    assert.equal(parseMoney('$9,999,999'), null);
+  });
+
   it('converts using provided rates', () => {
     const rates = new Map([
       ['USD', 1],
