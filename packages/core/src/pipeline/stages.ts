@@ -9,6 +9,7 @@ import {
   identifyPartFromPage,
   isAiEnabled,
   sameManufacturer,
+  verifyPartImage,
   verifyVendorOffer,
 } from '@dex/ai';
 import {
@@ -1333,6 +1334,38 @@ export async function runEnrichStage(jobId: string, env: PipelineEnv): Promise<v
         stage: 'enriching',
         data: { notes: result.notes },
       });
+
+      // Vision check: confirm the product photo actually shows this part.
+      // Fail open — a photo is only removed when the AI is confident it's wrong.
+      if (job.part?.imageUrl) {
+        try {
+          const verdict = await verifyPartImage({
+            apiKey: env.openaiApiKey,
+            model: env.openaiModel,
+            mpn: job.part.originalMpn,
+            manufacturer: job.part.manufacturer,
+            description: result.cleanedDescription ?? job.part.title,
+            imageUrl: job.part.imageUrl,
+          });
+          if (verdict && !verdict.matches && verdict.confidence >= 0.6) {
+            await prisma.part.update({
+              where: { id: job.part.id },
+              data: { imageUrl: null },
+            });
+            await appendJobEvent(
+              jobId,
+              `Photo removed — AI judged it shows ${verdict.whatItShows ?? 'a different product'}, not this part`,
+              { stage: 'enriching', level: 'warn' },
+            );
+          } else if (verdict?.matches) {
+            await appendJobEvent(jobId, 'AI confirmed the product photo matches this part', {
+              stage: 'enriching',
+            });
+          }
+        } catch {
+          // keep the photo when vision is unavailable
+        }
+      }
     } catch (error) {
       await appendJobEvent(
         jobId,

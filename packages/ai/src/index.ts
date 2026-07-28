@@ -241,6 +241,86 @@ export async function verifyVendorOffer(input: {
   return parsed.success ? parsed.data : null;
 }
 
+const imageVerdictSchema = z.object({
+  matches: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  whatItShows: z.string().max(200).optional(),
+});
+
+export type ImageVerdict = z.infer<typeof imageVerdictSchema>;
+
+/**
+ * Vision check: does the extracted product photo actually show the target
+ * part? Uses the model's image understanding plus procurement knowledge.
+ * Callers must fail open (keep the photo) if this call errors.
+ */
+export async function verifyPartImage(input: {
+  apiKey: string;
+  model: string;
+  mpn: string;
+  manufacturer?: string | null;
+  description?: string | null;
+  imageUrl: string;
+  timeoutMs?: number;
+}): Promise<ImageVerdict | null> {
+  const client = new OpenAI({
+    apiKey: input.apiKey,
+    timeout: input.timeoutMs ?? 20_000,
+    maxRetries: 0,
+  });
+
+  const response = await client.chat.completions.create({
+    model: input.model,
+    temperature: 0,
+    max_tokens: 200,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You verify product photos for a procurement tool. Look at the image and decide whether it plausibly shows the target part (or its packaging/labeled box). ' +
+          'Return JSON: {"matches": boolean, "confidence": 0-1, "whatItShows": "short description of what the image actually shows"}. ' +
+          'matches=false when the image clearly shows a different kind of product (e.g. a laptop when the part is a circuit breaker), a logo/banner, a placeholder, or an unrelated item. ' +
+          'matches=true when the image is consistent with the part category and description — exact visual part-number confirmation is not required.\n\n' +
+          buildDomainContext({
+            mpn: input.mpn,
+            manufacturer: input.manufacturer,
+            description: input.description,
+          }),
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              target: {
+                mpn: input.mpn,
+                manufacturer: input.manufacturer ?? undefined,
+                description: input.description?.slice(0, 200) ?? undefined,
+              },
+            }),
+          },
+          { type: 'image_url', image_url: { url: input.imageUrl, detail: 'low' } },
+        ],
+      },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) return null;
+
+  let json: unknown;
+  try {
+    json = JSON.parse(content);
+  } catch {
+    return null;
+  }
+
+  const parsed = imageVerdictSchema.safeParse(json);
+  return parsed.success ? parsed.data : null;
+}
+
 const enrichmentSchema = z.object({
   cleanedDescription: z.string().max(4000).optional(),
   summary: z.string().max(2000),
@@ -292,7 +372,7 @@ export async function enrichSearchResults(input: {
         role: 'system',
         content:
           'You assist procurement engineers. Return JSON only with keys: summary, cleanedDescription, suspiciousOfferIndexes[], notes[]. ' +
-          'cleanedDescription is REQUIRED: write a clear, professional 1–2 sentence description of the part, synthesized from the provided source description, part number, manufacturer, and vendor page descriptions. ' +
+          'cleanedDescription is REQUIRED: write a clear, professional 1–2 sentence description that BEGINS by stating plainly what the part is in simple words (e.g. "A 5-volt voltage regulator chip that…", "A replacement laptop hinge that…"), synthesized from the provided source description, part number, manufacturer, and vendor page descriptions. ' +
           'Expand cryptic catalog shorthand into readable English (e.g. "ASSY,BZL,FRT" → "front bezel assembly") but NEVER invent specifications, ratings, or compatibility that are not implied by the provided text. ' +
           'Scrutinize prices hard: flag by index any offer whose USD price is implausible for this part (extreme outlier vs the other offers, suspiciously low for the category, or likely a shipping/accessory/bundle price scraped by mistake). ' +
           'Also flag marketplace or unknown-domain sellers with prices far below reputable distributors (counterfeit risk). ' +
