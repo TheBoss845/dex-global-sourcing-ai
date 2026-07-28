@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@dex/db';
 import { interpretProductQuery } from '@dex/ai';
 import { getServerEnv } from '@/lib/server-env';
+import { rateLimit } from '@/lib/rate-limit';
 
 /**
  * Interpret a free-form product request ("the tiny raspberry pi computer")
@@ -10,6 +11,15 @@ import { getServerEnv } from '@/lib/server-env';
  */
 export async function POST(request: Request) {
   try {
+    const ip =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      'local';
+    const limited = rateLimit(`interpret:${ip}`, { limit: 20, windowMs: 60_000 });
+    if (!limited.allowed) {
+      return NextResponse.json({ error: 'Too many requests. Please wait a moment.' }, { status: 429 });
+    }
+
     let body: { query?: string } = {};
     try {
       body = await request.json();
