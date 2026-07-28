@@ -9,13 +9,15 @@ This repository is designed for **concurrent human and AI coding agents**.
 3. Do not cross package boundaries via deep imports.
 4. Do not expand scope beyond the assigned task/phase item.
 
-## How to add a supplier adapter
+## How to add a product-page site adapter
 
-1. Add a module under `packages/integrations/src/suppliers/`.
-2. Implement `SourceDiscovery` and/or `SourceResolve`.
-3. Register it in the integrations public index.
-4. Add HTML/JSON **fixtures** + contract tests (no live network in CI).
-5. Document rate limits in a `SiteProfile`.
+1. Add `packages/integrations/src/extractors/adapters/<site>.ts`.
+2. Implement `canHandle(url)` + `extract(page) → PartIdentityDraft`.
+3. Classify MPN vs SKU/model explicitly.
+4. Add HTML fixtures + contract tests (no live network in CI).
+5. Register in the adapter registry.
+
+Never hard-code a single merchant as the only supported input URL.
 
 ## How to add a queue stage
 

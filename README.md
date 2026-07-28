@@ -1,51 +1,33 @@
 # DEX Global Sourcing Assistant
 
-AI-powered worldwide supplier discovery for DEX purchasing teams.
+AI-powered **best-effort worldwide supplier discovery** for DEX purchasing teams.
+
+## Primary UX
+
+1. Paste a **public product-page URL**  
+2. Click **Find Suppliers**  
+3. See the identified manufacturer + exact MPN and about **10** supplier options  
+
+Users do not need to type an MPN or other product fields.
 
 ## Architecture
 
-Frozen design: [docs/architecture.md](docs/architecture.md) · [docs/packages.md](docs/packages.md) · [docs/agent-guidelines.md](docs/agent-guidelines.md)
+**Version 1.2 (amended — awaiting implementation approval):**
 
-**Coverage contract:** best-effort worldwide discovery across configured sources + Tavily web search, ranked by USD, with confidence/freshness metadata.
+- [docs/architecture.md](docs/architecture.md)  
+- [docs/packages.md](docs/packages.md)  
+- [docs/agent-guidelines.md](docs/agent-guidelines.md)  
+- [docs/adr/0001-url-first-product-page-workflow.md](docs/adr/0001-url-first-product-page-workflow.md)  
 
-## Quick start
+## Status
 
-```bash
-cp .env.example .env
-# add TAVILY_API_KEY and OPENAI_API_KEY
+Foundation MVP exists for an older SupplyItNow/MPN workflow. **Do not extend that workflow.** After v1.2 approval, refactor to URL-first resolve + safe arbitrary-URL fetching.
 
-docker compose up -d   # or use local Postgres/Redis
-pnpm install
-pnpm db:generate
-pnpm db:migrate
-
-# terminal 1
-pnpm --filter @dex/worker start
-
-# terminal 2
-pnpm --filter @dex/web dev
-```
-
-Open http://localhost:3000
-
-## Providers
+## Secrets
 
 | Concern | Provider | Env |
 |---------|----------|-----|
 | Web search | Tavily | `TAVILY_API_KEY` |
-| AI enrichment | OpenAI | `OPENAI_API_KEY`, `AI_ENABLED=true` |
-| FX | Frankfurter | none |
+| AI enrichment | OpenAI | `OPENAI_API_KEY`, `AI_ENABLED` |
 
-## Monorepo
-
-- `apps/web` — Next.js dashboard + BFF
-- `apps/worker` — BullMQ multi-queue pipeline
-- `packages/core` — domain orchestration
-- `packages/db` — Prisma/Postgres
-- `packages/integrations` — Tavily, HTTP fetch, extractors
-- `packages/knowledge` — supplier knowledge base
-- `packages/ai` — OpenAI enrichers
-
-## Scripts
-
-`pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm test` · `pnpm db:migrate`
+Never commit `.env`.

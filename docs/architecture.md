@@ -1,40 +1,57 @@
-# DEX Global Sourcing Assistant — Frozen Architecture
+# DEX Global Sourcing Assistant — Architecture
 
-**Status:** FROZEN  
-**Version:** 1.1  
-**Applies to:** Phases 0–6 implementation
+**Status:** AMENDED — awaiting approval to resume implementation  
+**Version:** 1.2  
+**Supersedes:** 1.1 (SupplyItNow-or-MPN input model)
 
-This document is the source of truth. Implementation must follow it. Changes require an explicit architecture amendment.
+This document is the source of truth after approval. Implementation must follow it.
 
 ---
 
 ## 1. Purpose & non-goals
 
-**Purpose:** Help DEX purchasing staff find and compare worldwide suppliers for an exact manufacturer part number (MPN), starting from a SupplyItNow URL or raw MPN.
+**Purpose:** Help DEX purchasing staff find and compare worldwide suppliers for an exact manufacturer part number (MPN). The **only required user input** is a public product-page URL from any supplier, distributor, manufacturer, marketplace, or industrial-parts site.
 
-**Non-goals (v1):** Guaranteed global completeness; automatic purchasing; unsupervised counterfeit takedowns; multi-region active-active.
+**Primary UX:**
 
-**Coverage contract:** Best-effort discovery across configured distributor integrations and web search, ranked by normalized USD price, with source, confidence, and freshness metadata.
+1. Paste a product-page URL  
+2. Click **Find Suppliers**  
+3. See the identified manufacturer + exact MPN, then **approximately 10** useful supplier results  
+
+The user must **not** be required to enter MPN, manufacturer, description, supplier name, specs, or keywords.
+
+**Non-goals (v1):**
+
+- Guaranteed global completeness (“entire internet”)  
+- Automatic purchasing / checkout  
+- Inventing an MPN when the source page is insufficient  
+- Unsupervised counterfeit takedowns  
+- Multi-region active-active  
+
+**Coverage contract:** Best-effort worldwide supplier discovery across configured adapters, APIs, search providers, and the internal knowledge base — with source, confidence, freshness, and evidence metadata. Never claim complete worldwide coverage.
 
 ---
 
 ## 2. System overview
 
 ```
-apps/web (Next.js BFF)
-    → packages/core (domain orchestration)
-        → packages/db (Postgres)
-        → packages/integrations (search / suppliers / fetch)
-        → packages/ai (optional enrichers)
-        → packages/knowledge (supplier knowledge base reads/writes)
-    → Redis / BullMQ (multi-queue)
-        → apps/worker
-Artifacts → local FS / MinIO / S3
+Browser (URL + Find Suppliers)
+    → apps/web (Next.js BFF)
+        → packages/core (orchestration only)
+            → packages/db
+            → packages/integrations  (safe fetch, adapters, extractors, search)
+            → packages/knowledge     (advisory priors + learning)
+            → packages/ai            (gray-zone only; never invents MPN)
+        → Redis / BullMQ
+            → apps/worker (+ isolated browser workers when needed)
+Artifacts (HTML/JSON) → object storage (never returned raw to clients)
 ```
 
 ---
 
 ## 3. Repository layout
+
+Unchanged package topology from v1.1, with clearer integration submodules:
 
 ```
 apps/web
@@ -42,310 +59,346 @@ apps/worker
 packages/core
 packages/db
 packages/integrations
+  src/fetch/           # SafeHttpFetcher, BrowserFetcher
+  src/security/        # DNS/IP/redirect guards used by fetchers
+  src/extractors/
+    generic/           # JSON-LD, OG, labeled fields, heuristics
+    adapters/          # site-specific adapters (incl. SupplyItNow as one adapter)
+  src/search/          # Tavily and future providers
+  src/suppliers/       # distributor API adapters
+packages/knowledge
 packages/ai
-packages/knowledge          # supplier knowledge base (learning layer)
-tooling/
-docker-compose.yml
 docs/
-  architecture.md           # this file (frozen)
-  packages.md
-  agent-guidelines.md       # AI-agent collaboration rules
-  runbooks/
 ```
 
-`packages/core` remains the only place for business orchestration. A future `apps/api` may wrap `packages/core` without rewriting domain logic.
+SupplyItNow is **not** a privileged input type. It is one optional site adapter.
 
 ---
 
-## 4. Domain model
+## 4. Domain model (v1.2)
 
-- `Organization` + `org_id` on jobs
-- `Part` with normalized MPN
-- `SearchJob` status state machine
-- Job-scoped `Offer` snapshots
-- `Supplier` keyed by registrable domain
-- `PartSearchCache` with TTL
-- `JobCandidate` child work items
-- Artifacts external; DB stores hash + storage key
-- **Supplier Knowledge Base entities** (see §16)
+### 4.1 Core entities
 
-### Job statuses
+| Entity | Role |
+|--------|------|
+| `Organization` | Multi-tenant ready (`org_id`) |
+| `SearchJob` | One Find Suppliers run; owns progress, budgets, source URLs, resolve outcome |
+| `Part` | Canonical identified part (original + normalized MPN, manufacturer, etc.) |
+| `PartIdentityEvidence` | Why the MPN was chosen (field sources, scores, extractor/adapter ids) |
+| `JobCandidate` | Discovered listing URLs; status + **rejection reason** when rejected |
+| `Supplier` | Domain-keyed supplier org |
+| `Offer` | **Job-scoped** offer snapshot (never invent missing fields) |
+| `PartSearchCache` | TTL cache keyed by normalized MPN (+ manufacturer when known) |
+| `ExchangeRate` | FX with `asOf` |
+| Knowledge entities | Profiles, MPN stats, price observations, reliability (unchanged intent) |
+| `JobEvent` | UI progress / audit trail (short retention) |
 
-`queued → resolving → discovering → extracting → normalizing → enriching → completed | completed_with_errors | failed | cancelled`
+### 4.2 SearchJob (source resolution)
+
+Must store:
+
+- `rawSourceUrl` — user paste  
+- `finalSourceUrl` — after safe redirects  
+- `sourceFetchMethod` — `http` \| `browser`  
+- `sourceArtifactHash` / `sourceArtifactKey` — private artifact pointer  
+- `resolveStatus` — `pending` \| `identified` \| `failed`  
+- `identificationConfidence` — 0..1  
+- `identificationMethod` — adapter id / generic path  
+- `resolveErrorCode` / `resolveErrorMessage` — when stopped  
+- budget, progress, summary, timestamps, `traceId`
+
+### 4.3 Part (identity)
+
+Must store:
+
+- `manufacturer` / `brand`  
+- `originalMpn` (display)  
+- `normalizedMpn` (search key)  
+- `supplierSku` (source page’s internal SKU, if any — **not** the search key)  
+- `modelNumber`, `title`, `description`  
+- `specificationsJson` (optional structured specs)  
+- distinction flags / classification notes as needed  
+
+### 4.4 PartIdentityEvidence
+
+One or more rows / JSON blob with:
+
+- candidate value + classification (`mpn` \| `sku` \| `model` \| `stock` \| `catalog` \| `unknown`)  
+- source (`json_ld` \| `og` \| `labeled_dom` \| `adapter` \| `meta` \| `heuristic`)  
+- selector / path  
+- score contribution  
+- chosen: boolean  
+
+### 4.5 JobCandidate
+
+Add:
+
+- `rejectionReason` enum/string (`mpn_mismatch`, `substitute`, `accessory`, `pdf_document`, `duplicate`, `mention_only`, `low_confidence`, `fetch_failed`, …)  
+- keep status machine: pending → extracting → extracted \| rejected \| failed  
+
+### 4.6 Offer (result row)
+
+Must support table fields:
+
+- supplier name, domain, country  
+- manufacturer, manufacturer MPN shown, supplier part number  
+- product URL  
+- unit price, currency, `priceUsd`  
+- optional quantity breaks JSON  
+- stock / availability text or qty  
+- MOQ, lead time, condition  
+- `extractedAt` / last verified  
+- `matchConfidence`  
+- `sourceType` (`api` \| `search` \| `scrape` \| `cache` \| `knowledge`)  
+- `riskFlags[]` / warnings  
+- reliability snapshot (copied or joined from knowledge at rank time)  
+
+Missing values remain **null** in storage; UI maps to “Price unavailable”, “Stock unknown”, etc. **Never invent.**
+
+### 4.7 Job statuses (expanded)
+
+`queued → validating → fetching_source → extracting_identity → identifying_mpn → discovering → gating → extracting_offers → validating_matches → normalizing → ranking → enriching → completed | completed_with_errors | failed | cancelled`
+
+(UI may collapse these into fewer human labels; events carry fine-grained stage names.)
 
 ---
 
-## 5. Pipeline
+## 5. Pipeline (final)
 
-1. Validate input (MPN or allowlisted SupplyItNow URL — SSRF-safe)
-2. Cache check (`forceRefresh` bypass)
-3. **Knowledge assist (read-only):** suggest preferred suppliers / historically strong domains for this MPN or manufacturer — **does not replace discovery**
-4. Resolve part (HTTP-first; Playwright if `SiteProfile.requiresBrowser`)
-5. Discover (tier-1 adapters + adaptive SERP under `JobBudget`)
-6. Gate candidates (score, caps, denylist; knowledge scores may boost, never sole admit)
-7. Extract / resolve offers
-8. Normalize (FX `asOf`, dedupe, USD sort)
-9. Enrich optionally (AI gray-zone / outliers / summary)
-10. Complete + update cache
-11. **Knowledge learn (async write):** update supplier stats from job outcomes
+1. **Validate URL** — public http(s); SSRF/DNS/redirect/size/time limits  
+2. **Fetch source page** — HTTP first; Playwright only if required  
+3. **Extract product identity** — generic + adapter layers  
+4. **Identify MPN** — classify MPN vs SKU/model/stock/catalog; score  
+5. **Normalize & validate MPN** — confidence gate; stop if insufficient  
+6. **Check cache** — optional short-circuit / assist (`forceRefresh` bypass)  
+7. **Discover worldwide candidates** — adapters, APIs, search providers, knowledge priors  
+8. **Gate candidates** — caps, denylist, MPN presence heuristics, budgets  
+9. **Fetch & extract listings** — HTTP-first; browser when profiled  
+10. **Validate exact matches** — deterministic first; AI gray-zone advisory only  
+11. **Normalize supplier & pricing** — FX `asOf`, availability fields  
+12. **Deduplicate** — registrable domain; best offer per supplier  
+13. **Rank** — ~10 useful results; priced USD asc, then unpriced; never promote suspicious over trustworthy solely on price  
+14. **Store results** — job snapshots + cache + knowledge learn (async)  
+15. **Display & export** — UI + CSV/Excel  
 
-**Match policy:** Deterministic normalized MPN match required by default. AI is advisory. Knowledge scores are advisory ranking signals only.
+**Match policy:** Exact normalized manufacturer MPN required for default acceptance. Packaging suffixes, revisions, kits, replacements, substitutes, accessories, mention-only pages, and unrelated PDFs are rejected or separated — not silently treated as identical.
+
+**AI policy:** May advise on gray-zone listing similarity / risk; **must not** invent source MPN; **must not** alone admit a non-exact match.
+
+**Knowledge policy:** Soft prior for discover priority only.
 
 ---
 
 ## 6. Integrations
 
-- `SearchProvider` + cache + quota
-- `SourceDiscovery` / `SourceResolve`
-- `SiteProfile` (`requiresBrowser`, rate limits)
-- `HttpFetcher` default; `BrowserFetcher` for Playwright
-- Per-domain circuit breakers
+### 6.1 Safe fetching
+
+`SafeHttpFetcher` / `BrowserFetcher` share:
+
+- scheme allow http/https  
+- block localhost, loopback, private, link-local, cloud metadata IPs  
+- DNS resolve → validate **all** addresses before connect  
+- redirect hop limit + revalidation per hop  
+- response size limit + timeouts  
+- no user cookies / auth forwarding  
+- browser pool isolated from lite workers  
+
+### 6.2 Product identity extraction
+
+```
+SiteAdapter.canHandle(url) → extract(html|page) → PartIdentityDraft
+GenericProductExtractor → JSON-LD, OG, labeled DOM, meta, conservative heuristics
+IdentityClassifier → tags values as mpn|sku|model|…
+MpnIdentifier → chooses MPN + confidence + evidence
+```
+
+Adapters are optional accelerators (Digi-Key, Mouser, LCSC, TI, Amazon, SupplyItNow, …). Generic path must work for unknown sites.
+
+### 6.3 Search providers
+
+Provider-independent `SearchProvider` interface (Tavily first). Query planner builds exact-match queries including manufacturer when known; adaptive regional fan-out (not one country only).
+
+### 6.4 Supplier adapters
+
+`SourceDiscovery` / `SourceResolve` for APIs and known distributors. Prefer APIs for precision and cost.
 
 ---
 
 ## 7. AI
 
-- Off unless `AI_ENABLED=true`
-- Structured snippets only — not full HTML by default
-- Batched, budget-capped, gray-zone gated
-- “AI suggests, rules decide”
+- Disabled unless configured  
+- Inputs: structured fields + short snippets — never full HTML to clients; minimize HTML to models  
+- Uses: gray-zone same-part advice, description cleanup, job summary, suspicion hints when rules trigger  
+- **Forbidden:** inventing MPN; auto-accepting non-exact matches without deterministic gate  
 
 ---
 
-## 8. API (BFF)
+## 8. API contracts (BFF)
 
-- `POST /api/searches`
-- `GET /api/searches/:id`
-- `GET /api/searches/:id/events`
-- `GET /api/searches/:id/results`
-- `POST /api/searches/:id/cancel`
-- `GET /api/searches/:id/export?format=csv|xlsx`
+### `POST /api/searches`
 
-Handlers validate with Zod and call `packages/core` only.
+Request (v1 primary):
 
----
-
-## 9. UI
-
-Professional DEX dashboard: brand-forward shell, search, progress, sortable/searchable results, CSV/Excel, dark mode, responsive. Show source tier, confidence, knowledge hints (e.g. preferred), and partial-success state transparently.
-
----
-
-## 10. Security
-
-- SupplyItNow host allowlist; deny private/link-local IPs; HTTPS only
-- Auth required before non-local deploy
-- Org-scoped queries for multi-user
-- Rate limit job creation
-- Never log secrets or full page bodies
-
----
-
-## 11. Reliability & ops
-
-- Timeouts/heartbeats; retries + DLQ
-- Idempotent offer upsert `(job_id, product_url)`
-- Partial success status
-- Structured logs with `jobId` / `traceId`
-- Metrics: duration, cache hit, cost proxies, source error rates, knowledge hit rate
-
----
-
-## 12. Testing
-
-- Unit: normalize/money/FX/budgets/knowledge scoring
-- Fixture contract tests per adapter (no live scraping in CI)
-- Pipeline integration with mocked HTTP/search
-- Staging canaries
-
----
-
-## 13. Deployment
-
-| Service | Role |
-|---------|------|
-| `web` | Next.js |
-| `worker` | Non-browser queues |
-| `worker-browser` | Playwright queues |
-| `postgres` | Primary + knowledge store |
-| `redis` | BullMQ |
-| object storage | Artifacts |
-
-Scale order: cache → API adapters → queue concurrency → browser pool → DB archival.
-
----
-
-## 14. Cost controls
-
-`JobBudget` caps SERP queries, candidates, browser navigations, AI tokens, wall-clock timeout.
-
----
-
-## 15. Scale (100k jobs/day)
-
-Requires high MPN cache hit rate, API-heavy resolution, parent/child jobs, multi-queue workers, HTTP-first fetch. Browser-per-job is rejected.
-
----
-
-## 16. Supplier Knowledge Base (learning layer)
-
-### 16.1 Intent
-
-Every completed sourcing job contributes to an internal **Supplier Knowledge Base** that improves future searches **without replacing** deterministic discovery, matching, or budgets.
-
-Knowledge is a **soft prior**: it can reorder, boost, or deprioritize candidates and suggest which adapters/domains to try first. It must never be the only reason an offer is accepted or rejected when deterministic MPN rules disagree.
-
-### 16.2 Package boundary
-
-`packages/knowledge` owns:
-
-- Read models / query services for pipeline assist
-- Write models / aggregators for post-job learning
-- Pure scoring functions (unit-tested, no I/O in scorers)
-
-`packages/core` orchestrates *when* to read/write knowledge.  
-`packages/db` owns persistence schema.  
-`packages/integrations` must not write knowledge directly (avoids hidden coupling).
-
-### 16.3 Core entities (logical)
-
-| Entity | Purpose |
-|--------|---------|
-| `SupplierProfile` | Canonical supplier (domain key), countries served, preferred flag |
-| `SupplierManufacturer` | Manufacturers this supplier has successfully listed |
-| `SupplierMpnStat` | Per-supplier × normalized MPN success/frequency stats |
-| `SupplierPriceObservation` | Append-only price points (currency, USD, observedAt, jobId) for trends |
-| `SupplierReliability` | Rolling reliability score, health status, consecutive failures/successes |
-| `SupplierQualityStat` | Average extraction/match quality, completeness of fields |
-| `KnowledgeEvent` | Audit of learn operations (jobId, eventType, payload summary) |
-
-Org-scoped where multi-tenant (`org_id`); global supplier identity remains domain-based.
-
-### 16.4 Signals learned from each job
-
-From successful / partial jobs (deterministic facts only):
-
-- Manufacturers supplied (from matched offers)
-- Countries served (from offer/supplier country)
-- Historical pricing observations (price, currency, priceUsd, timestamp)
-- Successful search counts and last-success-at
-- Search frequency (job touches for domain/MPN)
-- Reliability / health (extract success vs failure, timeout, blocked)
-- Response quality (fraction of required fields present; match confidence avg)
-- Preferred suppliers (explicit user mark **or** rule-based promotion after sustained high reliability — never silent AI-only promotion)
-
-### 16.5 Pipeline integration
-
-**Assist (before/during discover):**
-
-```ts
-interface KnowledgeAssist {
-  suggestSuppliers(input: {
-    normalizedMpn: string;
-    manufacturer?: string;
-    orgId?: string;
-    limit: number;
-  }): Promise<KnowledgeSuggestion[]>;
-}
-
-interface KnowledgeSuggestion {
-  supplierDomain: string;
-  score: number;          // 0..1 advisory
-  reasons: string[];      // explainable, logged
-  preferred: boolean;
-}
+```json
+{ "url": "https://distributor.example/product/...", "forceRefresh": false }
 ```
 
-Suggestions feed the discover planner as **priority hints** under the same `JobBudget`.
+Optional later (non-default UX): `{ "mpn": "..." }` for internal/debug only — not shown in first-version UI.
 
-**Learn (after job terminal state):**
+Responses:
 
-```ts
-interface KnowledgeLearner {
-  recordJobOutcome(jobId: string): Promise<void>;
-}
-```
+- `201` `{ job }` when accepted  
+- `400` validation / SSRF / blocked URL  
+- Job may later enter `failed` with resolve error if MPN confidence insufficient  
 
-Runs on queue `jobs-knowledge` (async, durable, idempotent on `jobId`). Failures must not fail the user-facing job.
+### `GET /api/searches/:id`
 
-### 16.6 Scoring principles
+Returns job + `part` (manufacturer, originalMpn, normalizedMpn, confidence, evidence summary) + progress + summary. **Does not** include raw HTML.
 
-- Deterministic formulas in `packages/knowledge` (documented weights)
-- Inputs are aggregated stats, not raw LLM judgments
-- AI may later *explain* trends; it must not be the sole writer of reliability scores in v1
-- All scores versioned (`scoringVersion`) so formulas can evolve safely
+### `GET /api/searches/:id/events`
 
-### 16.7 Privacy & retention
+Progress events for staged UI.
 
-- Price observations are business-sensitive: org-scoped access
-- Retention/archival policy aligned with job archival
-- No scraping of competitor sites solely to fill knowledge — knowledge derives from *our* job outcomes and configured sources
+### `GET /api/searches/:id/results`
 
----
+Paginated/~10 default offers with table fields; supports filter/sort. Unpriced after priced.
 
-## 17. AI-Friendly Architecture (multi-agent collaboration)
+### `POST /api/searches/:id/cancel`
 
-Assume multiple human engineers and AI coding agents work in this repository concurrently.
+### `GET /api/searches/:id/export?format=csv|xlsx`
 
-### 17.1 Design rules
+Export current job offers (structured fields only).
 
-1. **Small modules, single purpose** — one folder ≈ one responsibility; prefer many small files over god-modules.
-2. **Stable interfaces at boundaries** — public exports via package `index.ts` only; deep imports discouraged.
-3. **No hidden dependencies** — no reach-ins to another package’s internals; no ambient globals; config via typed `loadEnv`.
-4. **Explicit orchestration** — `packages/core` wires modules; adapters do not call each other sideways.
-5. **Independently testable** — every package has unit tests that run without Docker when logic is pure; I/O behind interfaces.
-6. **Documented contracts** — each package has a short README: purpose, public API, non-goals, dependency rules.
-7. **Task-sized changes** — features land as vertical slices with clear ownership (one queue stage, one adapter, one UI section).
-8. **Deterministic before probabilistic** — scrapers, FX, sort, budgets, MPN match are code; AI/knowledge are advisory layers.
-9. **Idempotent writes** — safe for concurrent workers and retried jobs.
-10. **Agent-readable docs** — keep `docs/agent-guidelines.md` updated with “how to add an adapter”, “how to add a queue stage”, “what not to touch”.
-
-### 17.2 Concurrency conventions for agents
-
-- One PR / one concern; do not mix unrelated refactors
-- Do not change frozen architecture without an ADR in `docs/adr/`
-- Prefer extending interfaces over modifying call sites broadly
-- Add/update tests in the same change as behavior
-- Leave `CONTRIBUTING` touchpoints (package README + agent guidelines) current
-
-### 17.3 Interface stability tiers
-
-| Tier | Examples | Change policy |
-|------|----------|---------------|
-| **Frozen** | Architecture doc, coverage contract, package boundaries | ADR required |
-| **Stable** | `SourceDiscovery`, `KnowledgeAssist`, job status enum | Versioned / careful migration |
-| **Volatile** | Site selectors, SERP query strings, UI copy | Freely iterable with fixtures |
+All handlers validate with Zod and call `packages/core` only.
 
 ---
 
-## 18. Package dependency rules
+## 9. UI plan (first version)
 
-```
-apps/web            → core, db
-apps/worker         → core, db, integrations, ai, knowledge
-packages/core       → db, integrations, ai, knowledge (orchestration only)
-packages/knowledge  → db (no Playwright, no Next)
-packages/integrations → may use Playwright / HTTP
-packages/ai         → optional vendor SDKs; no Playwright
-packages/db         → Prisma only
-```
+Single composition:
 
-Apps must not import each other. `core` must not import Next.js or Playwright.
+- Brand **DEX** as primary signal  
+- One URL input  
+- One primary CTA: **Find Suppliers**  
+- Progress stages (mapped from pipeline)  
+- **Identified manufacturer** + **identified MPN** + confidence + original source link (above results)  
+- Comparison table (~10 rows) with columns:  
+  Supplier · Country · Manufacturer · Manufacturer Part Number · Supplier Part Number · Price · Currency · USD Price · Stock · MOQ · Lead Time · Match Confidence · Supplier Reliability · Last Verified · Product Link · Warnings  
+- Empty/missing → “Price unavailable” / “Stock unknown” / “Lead time unavailable”  
+- CSV + Excel export  
+- Clear errors when MPN cannot be identified; partial-success when some candidates fail  
+- Dark mode + responsive  
+- Coverage language: “best-effort worldwide supplier discovery”  
+
+Remove first-version dual-mode MPN/URL toggle from the primary dashboard.
 
 ---
 
-## 19. Phase map
+## 10. Security plan
+
+| Control | Requirement |
+|---------|-------------|
+| Schemes | http/https only |
+| Host/IP | Block localhost, loopback, private, link-local, metadata ranges |
+| DNS | Resolve before fetch; reject if any answer is blocked (rebinding) |
+| Redirects | Cap hops; revalidate every target |
+| Limits | Timeout, max bytes, concurrency |
+| Credentials | Never send user cookies/auth; no shared cookie jar across jobs |
+| Browser | Isolated worker pool; same URL gates before navigation |
+| Artifacts | Private storage by hash; never expose fetched HTML to users |
+| Auth | Required before shared/staging/prod exposure |
+| Tenancy | `org_id` ready; rate-limit job creation |
+
+**Removed as primary control:** SupplyItNow-only host allowlist for product URLs.
+
+---
+
+## 11. Testing strategy
+
+- **Unit:** MPN normalize; identity classifier; confidence gate; money/FX; candidate rejection reasons; ranking (~10, priced first)  
+- **SSRF suite:** private IPs, metadata IP, DNS rebinding fixtures, redirect-to-private, oversized body, timeout  
+- **Extractor fixtures:** HTML/JSON-LD per adapter + generic pages (no live network in CI)  
+- **Pipeline integration:** mocked fetch/search; assert stop-on-low-confidence; assert exact-match gating  
+- **Contract tests** for each site adapter before merge  
+- **Staging canaries** for critical adapters + Tavily  
+- Never depend on live arbitrary URLs in CI  
+
+---
+
+## 12. Reliability, cost, scale
+
+Unchanged principles from v1.1:
+
+- Job budgets (SERP, candidates, browser navigations, AI, wall clock)  
+- Target ~10 results (not unbounded)  
+- Parent/child work; queue messages are IDs only; DLQ  
+- HTTP-first; <10% browser fetches as scale goal  
+- Cache by normalized MPN  
+- Partial success vs hard fail  
+
+---
+
+## 13. Supplier Knowledge Base
+
+Unchanged role: learn from outcomes; suggest preferred domains; **never** replace deterministic discovery/matching; never invent MPN.
+
+---
+
+## 14. AI-friendly module rules
+
+Unchanged: small modules, stable exports, no hidden deps, package READMEs, ADRs for frozen-contract changes, concurrent human/AI agents.
+
+---
+
+## 15. Implementation roadmap (revised)
 
 | Phase | Focus |
 |-------|--------|
-| 0 | Monorepo foundation |
-| 1 | Data model, jobs API, UI shell, queues |
-| 2 | SupplyItNow + SSRF allowlist |
-| 3 | Discovery + adapters |
-| 4 | Extract, dedupe, FX, rank |
-| 5 | AI enrichment |
-| 6 | Export, auth, hardening |
-| *Knowledge MVP* | Schema + assist/learn hooks land with Phases 1 & 4; scoring polish can track Phase 5–6 |
+| **0** | Monorepo foundation (largely done) |
+| **1** | Data model v1.2, URL-only API/UI shell, queues, progress events |
+| **2** | **Safe arbitrary-URL fetch** (DNS/IP/redirect/size/time) + **generic identity extraction** + confidence gate + evidence persistence |
+| **3** | Worldwide discovery (Tavily + knowledge assist + first distributor adapters) targeting ~10 gated candidates |
+| **4** | Listing extract, exact-match validation, FX, dedupe, rank (~10), rejection reasons |
+| **5** | AI gray-zone / summary / risk (still no MPN invention) |
+| **6** | Export polish, auth, hardening, canaries, ops |
+| **Ongoing** | Site adapters for top suppliers to raise resolve + price precision |
+
+Phase 2 is no longer “SupplyItNow allowlist extractor.” SupplyItNow may return later as a normal adapter.
+
+---
+
+## 16. Impact on completed code (must change / remove)
+
+The existing MVP implemented the **old** workflow. After approval, these areas **must** be changed before treating the product as correct:
+
+### Must change
+
+| Area | Current behavior | Required change |
+|------|------------------|-----------------|
+| UI (`dashboard.tsx`) | MPN **or** URL mode toggle | URL-only + **Find Suppliers**; show identified manufacturer/MPN/confidence above table; expand columns |
+| API schema (`createSearchSchema`) | `mpn` or `url` | Primary `{ url }`; MPN optional/internal only |
+| `createSearchJob` / resolve stage | SupplyItNow allowlist + `extractSupplyItNowPart` | Safe arbitrary URL validate/fetch; generic+adapter identity pipeline; confidence stop |
+| `assertSafeUrl` / env `SUPPLYITNOW_ALLOWED_HOSTS` | Host allowlist as main control | DNS/IP/redirect/size limits; drop allowlist-as-required for product URLs |
+| Prisma schema | Thin part/job fields | Add source URLs, evidence, confidence, rejection reasons, richer offer fields |
+| Candidate gating | Weak (datasheet filters partial) | Explicit reject reasons: substitutes, kits, PDFs, mention-only, etc. |
+| Ranking | Unbounded-ish then table | Explicit ~10 useful results; priced then unpriced; trust before suspicious cheap |
+| Copy / README | Mentions SupplyItNow-or-MPN | URL-first UX + coverage contract language |
+
+### Keep (still valid)
+
+- Monorepo layout, BullMQ multi-queue (hyphen names), HTTP-first policy  
+- Job-scoped offers + knowledge package pattern  
+- Tavily provider abstraction, Frankfurter FX, OpenAI enricher behind flags  
+- Export endpoints (extend columns)  
+- Core package boundary  
+
+### Remove or demote
+
+- First-class SupplyItNow-only input path and allowlist-centric security story  
+- Primary UI path that asks users to type an MPN  
+- Treating `extractSupplyItNowPart` as the resolve implementation (keep only as one adapter file if useful)  
+
+**Recommendation:** Do not ship/merge further feature work on the old UX. Implement v1.2 as an intentional refactor starting at Phase 1–2 schema + resolve, then re-wire discover→rank to the ~10 result contract.
 
 ---
 
@@ -353,5 +406,12 @@ Apps must not import each other. `core` must not import Next.js or Playwright.
 
 | Ver | Change |
 |-----|--------|
-| 1.0 | Final architecture after critical review |
-| 1.1 | Supplier Knowledge Base (§16); AI-Friendly Architecture (§17); `packages/knowledge` |
+| 1.0 | Initial post-review architecture |
+| 1.1 | Knowledge base + AI-friendly rules |
+| 1.2 | **URL-first arbitrary product-page workflow**; generic identity extraction; DNS/SSRF hardening; ~10 result UX; evidence + confidence gate; roadmap & code-impact update |
+
+---
+
+## Approval gate
+
+No new production implementation for this correction until **v1.2 is explicitly approved**.
