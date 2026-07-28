@@ -3,7 +3,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Prisma, prisma } from '@dex/db';
-import { enrichSearchResults, identifyPartFromPage, isAiEnabled } from '@dex/ai';
+import {
+  enrichSearchResults,
+  identifyPartFromPage,
+  isAiEnabled,
+  verifyVendorOffer,
+} from '@dex/ai';
 import {
   TavilySearchProvider,
   extractGenericOffer,
@@ -733,7 +738,42 @@ export async function runExtractStage(
           'alternative to',
         ]);
       const exact = exactStructured || exactCommerce || exactName;
-      const matchConfidence = exactStructured ? 1 : exactCommerce ? 0.82 : exactName ? 0.75 : 0;
+      let matchConfidence = exactStructured ? 1 : exactCommerce ? 0.82 : exactName ? 0.75 : 0;
+
+      // AI second opinion on borderline (non-structured) matches: is this page
+      // really selling the exact part? Fail-open — deterministic gates already
+      // passed, so an AI outage never blocks results.
+      if (exact && !exactStructured && env.aiEnabled && env.openaiApiKey) {
+        try {
+          const verdict = await verifyVendorOffer({
+            apiKey: env.openaiApiKey,
+            model: env.openaiModel,
+            mpn: job.part.originalMpn,
+            manufacturer: job.part.manufacturer ?? job.part.brand,
+            partDescription: job.part.title ?? job.part.descriptionClean,
+            pageUrl: page.finalUrl || candidate.url,
+            pageExcerpt: visibleTextExcerpt(page.body, 6000),
+          });
+          if (verdict) {
+            if (!verdict.sellsExactPart && verdict.confidence >= 0.6) {
+              await prisma.jobCandidate.update({
+                where: { id: candidate.id },
+                data: {
+                  status: 'rejected',
+                  rejectionReason: 'ai_rejected',
+                  errorMessage: (verdict.reason ?? 'AI verification: not the exact part').slice(0, 200),
+                },
+              });
+              continue;
+            }
+            if (verdict.sellsExactPart) {
+              matchConfidence = Math.min(0.95, Math.max(matchConfidence, verdict.confidence));
+            }
+          }
+        } catch {
+          // fail open — keep the deterministic decision
+        }
+      }
       const offerManufacturer =
         draft.manufacturer ?? identity.manufacturer ?? identity.brand ?? null;
 

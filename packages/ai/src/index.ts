@@ -144,6 +144,82 @@ export async function parsePartsListWithAi(input: {
   return parsed.data.items.filter((item) => haystack.includes(item.mpn.toUpperCase()));
 }
 
+const vendorVerdictSchema = z.object({
+  sellsExactPart: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  reason: z.string().max(300).optional(),
+});
+
+export type VendorVerdict = z.infer<typeof vendorVerdictSchema>;
+
+/**
+ * Second-opinion check on a borderline vendor match: does this page really
+ * sell the exact part (not an accessory, substitute, kit, blog mention,
+ * or different variant)? Used only for non-structured matches; callers
+ * must fail open if this call errors.
+ */
+export async function verifyVendorOffer(input: {
+  apiKey: string;
+  model: string;
+  mpn: string;
+  manufacturer?: string | null;
+  partDescription?: string | null;
+  pageUrl: string;
+  pageExcerpt: string;
+  timeoutMs?: number;
+}): Promise<VendorVerdict | null> {
+  const client = new OpenAI({
+    apiKey: input.apiKey,
+    timeout: input.timeoutMs ?? 15_000,
+    maxRetries: 0,
+  });
+
+  const response = await client.chat.completions.create({
+    model: input.model,
+    temperature: 0,
+    max_tokens: 200,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are a strict procurement verifier. Given a target part and a supplier page excerpt, decide if the page sells THAT exact part. ' +
+          'Return JSON: {"sellsExactPart": boolean, "confidence": 0-1, "reason": "short"}. ' +
+          'Answer false for: accessories or kits for the part, substitutes/replacements/compatibles, different variants or revisions, ' +
+          'category/search listing pages that merely mention it, blogs, guides, reviews, and forums. ' +
+          'Answer true only when the page clearly offers the exact part for sale. Judge only from the provided content — never assume.',
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          target: {
+            mpn: input.mpn,
+            manufacturer: input.manufacturer ?? undefined,
+            description: input.partDescription?.slice(0, 200) ?? undefined,
+          },
+          page: {
+            url: input.pageUrl.slice(0, 300),
+            excerpt: input.pageExcerpt.slice(0, 6000),
+          },
+        }),
+      },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) return null;
+
+  let json: unknown;
+  try {
+    json = JSON.parse(content);
+  } catch {
+    return null;
+  }
+
+  const parsed = vendorVerdictSchema.safeParse(json);
+  return parsed.success ? parsed.data : null;
+}
+
 const enrichmentSchema = z.object({
   cleanedDescription: z.string().max(4000).optional(),
   summary: z.string().max(2000),

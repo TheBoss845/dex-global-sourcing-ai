@@ -1,6 +1,9 @@
 export function appBaseUrl(request?: Request): string {
   const configured = process.env.APP_BASE_URL?.trim().replace(/\/$/, '');
   if (configured) return configured;
+  // Netlify sets URL; Render sets RENDER_EXTERNAL_URL.
+  const netlifyUrl = process.env.URL?.trim().replace(/\/$/, '');
+  if (netlifyUrl?.startsWith('http')) return netlifyUrl;
   const renderExternal = process.env.RENDER_EXTERNAL_URL?.trim().replace(/\/$/, '');
   if (renderExternal) return renderExternal;
   if (request) {

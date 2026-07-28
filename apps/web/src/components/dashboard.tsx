@@ -767,7 +767,10 @@ export function Dashboard() {
           <div className="mb-4 inline-flex rounded-xl border border-dex-border bg-dex-bg-elevated p-1 shadow-card">
             <button
               type="button"
-              onClick={() => setMode('batch')}
+              onClick={() => {
+                setMode('batch');
+                setError(null);
+              }}
               className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
                 mode === 'batch' ? 'bg-dex-accent text-white' : 'text-dex-muted hover:text-dex-fg'
               }`}
@@ -776,7 +779,10 @@ export function Dashboard() {
             </button>
             <button
               type="button"
-              onClick={() => setMode('single')}
+              onClick={() => {
+                setMode('single');
+                setError(null);
+              }}
               className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
                 mode === 'single' ? 'bg-dex-accent text-white' : 'text-dex-muted hover:text-dex-fg'
               }`}
