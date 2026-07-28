@@ -76,6 +76,74 @@ export async function identifyPartFromPage(input: {
   return parsed.data;
 }
 
+const partsListSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        mpn: z.string().min(2).max(80),
+        description: z.string().max(300).optional(),
+        manufacturer: z.string().max(120).optional(),
+      }),
+    )
+    .max(50),
+});
+
+export type ParsedPartsList = z.infer<typeof partsListSchema>;
+
+/**
+ * Turn a messy pasted parts list (marketplace rows, spreadsheets, emails)
+ * into structured items. Grounded: every part number must literally appear
+ * in the pasted text — callers should re-verify.
+ */
+export async function parsePartsListWithAi(input: {
+  apiKey: string;
+  model: string;
+  text: string;
+  timeoutMs?: number;
+}): Promise<ParsedPartsList['items'] | null> {
+  const client = new OpenAI({
+    apiKey: input.apiKey,
+    timeout: input.timeoutMs ?? 25_000,
+    maxRetries: 1,
+  });
+
+  const response = await client.chat.completions.create({
+    model: input.model,
+    temperature: 0,
+    max_tokens: 2500,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You extract procurement parts lists from messy pasted text (marketplace tables, spreadsheets, emails). ' +
+          'Return JSON: {"items":[{"mpn","description?","manufacturer?"}]}. ' +
+          'mpn is the manufacturer/vendor part number exactly as written. ' +
+          'HARD RULES: only include part numbers that literally appear in the text; never invent or complete identifiers; ' +
+          'skip prices, quantities, conditions, dates, listing ids, and UI noise like "Quote Now" or "Best Offer". Max 50 items.',
+      },
+      { role: 'user', content: input.text.slice(0, 24_000) },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) return null;
+
+  let json: unknown;
+  try {
+    json = JSON.parse(content);
+  } catch {
+    return null;
+  }
+
+  const parsed = partsListSchema.safeParse(json);
+  if (!parsed.success) return null;
+
+  // Grounding: drop anything not literally present in the pasted text.
+  const haystack = input.text.toUpperCase();
+  return parsed.data.items.filter((item) => haystack.includes(item.mpn.toUpperCase()));
+}
+
 const enrichmentSchema = z.object({
   cleanedDescription: z.string().max(4000).optional(),
   summary: z.string().max(2000),

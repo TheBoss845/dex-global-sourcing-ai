@@ -223,6 +223,11 @@ export function Dashboard() {
   const [batchId, setBatchId] = useState<string | null>(null);
   const [batchJobs, setBatchJobs] = useState<BatchJobRow[]>([]);
   const [batchStarting, setBatchStarting] = useState(false);
+  const [parsedItems, setParsedItems] = useState<
+    Array<{ mpn: string; description?: string; manufacturer?: string }> | null
+  >(null);
+  const [parseMethod, setParseMethod] = useState<string | null>(null);
+  const [parsing, setParsing] = useState(false);
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [offers, setOffers] = useState<OfferRow[]>([]);
   const [query, setQuery] = useState('');
@@ -380,29 +385,35 @@ export function Dashboard() {
     }
   }
 
-  async function startBatch(e: React.FormEvent) {
+  async function parseBatchText(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const items = batchText
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const sep = line.includes('\t') ? '\t' : ',';
-        const idx = line.indexOf(sep);
-        if (idx === -1) return { mpn: line };
-        return {
-          mpn: line.slice(0, idx).trim(),
-          description: line.slice(idx + 1).trim() || undefined,
-        };
-      })
-      .filter((item) => item.mpn.length >= 2);
-
-    if (items.length === 0) {
-      setError('Add at least one part number (one per line: PART-NUMBER, description)');
+    if (!batchText.trim()) {
+      setError('Paste your parts list first — straight from SupplyItNow, a spreadsheet, or one part per line.');
       return;
     }
+    setParsing(true);
+    try {
+      const res = await fetch('/api/batches/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ text: batchText }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Could not read that parts list');
+      setParsedItems(data.items ?? []);
+      setParseMethod(data.method ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read that parts list');
+    } finally {
+      setParsing(false);
+    }
+  }
 
+  async function startBatch() {
+    if (!parsedItems || parsedItems.length === 0) return;
+    setError(null);
     setBatchStarting(true);
     setBatchJobs([]);
     setBatchId(null);
@@ -411,11 +422,13 @@ export function Dashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ items, forceRefresh }),
+        body: JSON.stringify({ items: parsedItems, forceRefresh }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to start the report');
       setBatchId(data.batchId);
+      setParsedItems(null);
+      setParseMethod(null);
       setBatchJobs(
         (data.jobs as Array<{ id: string; mpn: string; status: string }>).map((j) => ({
           ...j,
@@ -772,21 +785,26 @@ export function Dashboard() {
             </button>
           </div>
 
-          {mode === 'batch' ? (
+          {mode === 'batch' && !parsedItems ? (
             <form
-              onSubmit={(e) => void startBatch(e)}
+              onSubmit={(e) => void parseBatchText(e)}
               className="rounded-2xl border border-dex-border bg-dex-bg-elevated p-5 shadow-card md:p-6"
             >
               <label className="mb-2 block text-sm font-semibold text-dex-fg" htmlFor="parts-list">
-                Parts list — one per line: <span className="font-mono font-normal">PART-NUMBER, description</span>
+                Paste your parts list — any format
               </label>
+              <p className="mb-3 text-xs text-dex-muted">
+                Copy rows straight from SupplyItNow, a spreadsheet, or an email — or type one part
+                per line like <span className="font-mono">LM7805CT, 5V regulator</span>. DEX figures
+                out the part numbers, descriptions, and manufacturers automatically.
+              </p>
               <textarea
                 id="parts-list"
                 value={batchText}
                 onChange={(e) => setBatchText(e.target.value)}
-                rows={6}
-                placeholder={'PRT-17259, Flexible Qwiic Cable 100mm\nLM7805CT, 5V linear voltage regulator\nRPI-ZERO-13, Raspberry Pi Zero v1.3'}
-                className="w-full rounded-xl border border-dex-border bg-transparent px-4 py-3 font-mono text-sm text-dex-fg outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25"
+                rows={8}
+                placeholder={'Paste anything here, e.g. rows copied from supplyitnow.com:\n\nAbb\tRenewable\t29088391\tCIRCUIT BREAKER, 0.63-1A, MS325-1.0\t1\t$Best Offer…\nDell\tInformation Technology\tMYHV5\tASSY,BZL,FRT,5860T\t1\t$Best Offer…'}
+                className="w-full rounded-xl border border-dex-border bg-transparent px-4 py-3 font-mono text-xs text-dex-fg outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25"
                 spellCheck={false}
               />
               <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -795,15 +813,15 @@ export function Dashboard() {
                 </p>
                 <button
                   type="submit"
-                  disabled={batchStarting || !batchText.trim() || (batchJobs.length > 0 && !batchDone)}
+                  disabled={parsing || !batchText.trim() || (batchJobs.length > 0 && !batchDone)}
                   className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-dex-accent px-6 py-3 font-semibold text-white shadow-card transition hover:brightness-110 disabled:opacity-50"
                 >
-                  {batchStarting || (batchJobs.length > 0 && !batchDone) ? <Spinner /> : null}
-                  {batchStarting
-                    ? 'Starting…'
+                  {parsing || (batchJobs.length > 0 && !batchDone) ? <Spinner /> : null}
+                  {parsing
+                    ? 'Reading…'
                     : batchJobs.length > 0 && !batchDone
                       ? 'Building report…'
-                      : 'Build vendor report'}
+                      : 'Read parts list'}
                 </button>
               </div>
               {error ? (
@@ -812,6 +830,84 @@ export function Dashboard() {
                 </p>
               ) : null}
             </form>
+          ) : null}
+
+          {mode === 'batch' && parsedItems ? (
+            <div className="rounded-2xl border border-dex-border bg-dex-bg-elevated shadow-card">
+              <div className="flex flex-col gap-3 border-b border-dex-border p-5 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-dex-brand">
+                    Found {parsedItems.length} part{parsedItems.length === 1 ? '' : 's'}
+                  </h2>
+                  <p className="mt-0.5 text-sm text-dex-muted">
+                    {parseMethod === 'ai'
+                      ? 'AI cleaned up your paste — check the list, then run the report.'
+                      : 'Check the list, then run the report.'}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setParsedItems(null);
+                      setParseMethod(null);
+                    }}
+                    className="rounded-lg border border-dex-border px-4 py-2 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
+                  >
+                    Back to edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void startBatch()}
+                    disabled={batchStarting || parsedItems.length === 0}
+                    className="flex items-center gap-2 rounded-lg bg-dex-accent px-5 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+                  >
+                    {batchStarting ? <Spinner /> : null}
+                    {batchStarting ? 'Starting…' : `Run report (${parsedItems.length})`}
+                  </button>
+                </div>
+              </div>
+              <div className="dex-scroll max-h-72 overflow-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-[11px] font-semibold tracking-wide text-dex-muted uppercase">
+                      <th className="px-5 py-2.5">Part number</th>
+                      <th className="px-4 py-2.5">Description</th>
+                      <th className="px-4 py-2.5">Manufacturer</th>
+                      <th className="px-4 py-2.5" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsedItems.map((item, index) => (
+                      <tr key={`${item.mpn}-${index}`} className="border-t border-dex-border/70">
+                        <td className="px-5 py-2.5 font-medium text-dex-fg">{item.mpn}</td>
+                        <td className="max-w-[320px] truncate px-4 py-2.5 text-dex-muted">
+                          {item.description ?? '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-dex-muted">{item.manufacturer ?? '—'}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          <button
+                            type="button"
+                            aria-label={`Remove ${item.mpn}`}
+                            onClick={() =>
+                              setParsedItems((prev) => prev?.filter((_, i) => i !== index) ?? null)
+                            }
+                            className="text-xs font-semibold text-dex-muted transition hover:text-dex-danger"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {error ? (
+                <p className="m-4 rounded-lg bg-dex-danger-soft px-3 py-2 text-sm text-dex-danger">
+                  {error}
+                </p>
+              ) : null}
+            </div>
           ) : null}
 
           {mode === 'batch' && batchJobs.length > 0 ? (

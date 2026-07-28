@@ -11,6 +11,7 @@
     "test": "node -e \"console.log('@dex/web: UI covered manually / smoke')\""
   },
   "dependencies": {
+    "@dex/ai": "workspace:*",
     "@dex/core": "workspace:*",
     "@dex/db": "workspace:*",
     "dotenv": "^16.4.7",
