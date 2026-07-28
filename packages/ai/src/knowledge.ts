@@ -318,6 +318,65 @@ export function categorizePart(text: string | null | undefined): PartCategory | 
 }
 
 /* ------------------------------------------------------------------ */
+/* Known distributors & marketplaces                                   */
+/* ------------------------------------------------------------------ */
+
+export type KnownDistributor = {
+  name: string;
+  country: string;
+  kind: 'distributor' | 'marketplace' | 'metasearch' | 'retailer';
+};
+
+/** Registrable domain → identity for well-known part sources. */
+export const KNOWN_DISTRIBUTORS: Record<string, KnownDistributor> = {
+  'digikey.com': { name: 'DigiKey Electronics', country: 'US', kind: 'distributor' },
+  'mouser.com': { name: 'Mouser Electronics', country: 'US', kind: 'distributor' },
+  'arrow.com': { name: 'Arrow Electronics', country: 'US', kind: 'distributor' },
+  'avnet.com': { name: 'Avnet', country: 'US', kind: 'distributor' },
+  'newark.com': { name: 'Newark (element14)', country: 'US', kind: 'distributor' },
+  'farnell.com': { name: 'Farnell (element14)', country: 'GB', kind: 'distributor' },
+  'element14.com': { name: 'element14', country: 'SG', kind: 'distributor' },
+  'rs-online.com': { name: 'RS Components', country: 'GB', kind: 'distributor' },
+  'rsdelivers.com': { name: 'RS Components', country: 'GB', kind: 'distributor' },
+  'tme.eu': { name: 'TME (Transfer Multisort Elektronik)', country: 'PL', kind: 'distributor' },
+  'lcsc.com': { name: 'LCSC Electronics', country: 'CN', kind: 'distributor' },
+  'ti.com': { name: 'Texas Instruments (direct)', country: 'US', kind: 'distributor' },
+  'st.com': { name: 'STMicroelectronics (direct)', country: 'CH', kind: 'distributor' },
+  'tti.com': { name: 'TTI Inc.', country: 'US', kind: 'distributor' },
+  'heilind.com': { name: 'Heilind Electronics', country: 'US', kind: 'distributor' },
+  'onlinecomponents.com': { name: 'Online Components', country: 'US', kind: 'distributor' },
+  'chip1stop.com': { name: 'Chip One Stop', country: 'JP', kind: 'distributor' },
+  'distrelec.com': { name: 'Distrelec', country: 'CH', kind: 'distributor' },
+  'conrad.com': { name: 'Conrad Electronic', country: 'DE', kind: 'distributor' },
+  'conrad.de': { name: 'Conrad Electronic', country: 'DE', kind: 'distributor' },
+  'reichelt.de': { name: 'Reichelt Elektronik', country: 'DE', kind: 'distributor' },
+  'galco.com': { name: 'Galco Industrial Electronics', country: 'US', kind: 'distributor' },
+  'radwell.com': { name: 'Radwell International', country: 'US', kind: 'distributor' },
+  'plccenter.com': { name: 'Radwell (PLCCenter)', country: 'US', kind: 'distributor' },
+  'motionindustries.com': { name: 'Motion Industries', country: 'US', kind: 'distributor' },
+  'grainger.com': { name: 'Grainger', country: 'US', kind: 'distributor' },
+  'zoro.com': { name: 'Zoro', country: 'US', kind: 'retailer' },
+  'mcmaster.com': { name: 'McMaster-Carr', country: 'US', kind: 'distributor' },
+  'adafruit.com': { name: 'Adafruit Industries', country: 'US', kind: 'retailer' },
+  'sparkfun.com': { name: 'SparkFun Electronics', country: 'US', kind: 'retailer' },
+  'thepihut.com': { name: 'The Pi Hut', country: 'GB', kind: 'retailer' },
+  'pishop.us': { name: 'PiShop.us', country: 'US', kind: 'retailer' },
+  'makerfabs.com': { name: 'Makerfabs', country: 'CN', kind: 'retailer' },
+  'seeedstudio.com': { name: 'Seeed Studio', country: 'CN', kind: 'retailer' },
+  'pimoroni.com': { name: 'Pimoroni', country: 'GB', kind: 'retailer' },
+  'opencircuit.nl': { name: 'Opencircuit', country: 'NL', kind: 'retailer' },
+  'amazon.com': { name: 'Amazon', country: 'US', kind: 'marketplace' },
+  'ebay.com': { name: 'eBay', country: 'US', kind: 'marketplace' },
+  'alibaba.com': { name: 'Alibaba', country: 'CN', kind: 'marketplace' },
+  'aliexpress.com': { name: 'AliExpress', country: 'CN', kind: 'marketplace' },
+  'made-in-china.com': { name: 'Made-in-China', country: 'CN', kind: 'marketplace' },
+  'oemstrade.com': { name: 'OEMsTrade (price aggregator)', country: 'US', kind: 'metasearch' },
+  'findchips.com': { name: 'FindChips (price aggregator)', country: 'US', kind: 'metasearch' },
+  'octopart.com': { name: 'Octopart (price aggregator)', country: 'US', kind: 'metasearch' },
+  'supplyitnow.com': { name: 'SupplyItNow', country: 'US', kind: 'marketplace' },
+};
+
+/* ------------------------------------------------------------------ */
 /* Risk & counterfeit heuristics                                       */
 /* ------------------------------------------------------------------ */
 

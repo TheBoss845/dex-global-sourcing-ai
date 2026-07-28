@@ -7,12 +7,14 @@ export {
   CATALOG_SHORTHAND,
   PART_CATEGORIES,
   RISK_SIGNALS,
+  KNOWN_DISTRIBUTORS,
   canonicalManufacturer,
   sameManufacturer,
   expandShorthand,
   categorizePart,
   buildDomainContext,
 } from './knowledge.js';
+export type { KnownDistributor } from './knowledge.js';
 
 export function isAiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.AI_ENABLED === 'true' && Boolean(env.OPENAI_API_KEY);

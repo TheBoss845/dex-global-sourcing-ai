@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Prisma, prisma } from '@dex/db';
 import {
+  KNOWN_DISTRIBUTORS,
   enrichSearchResults,
   identifyPartFromPage,
   isAiEnabled,
@@ -614,6 +615,20 @@ function isLowValueDomain(domain: string, url: string): boolean {
   if (lower.endsWith('.pdf')) return true;
   if (domain.includes('datasheet') && !lower.includes('buy') && !lower.includes('cart')) return true;
   if (/(^|\.)flight|airline|airport/.test(domain) && !lower.includes('electronic')) return true;
+
+  // Marketplace search/category pages are not vendor offers — only accept
+  // actual product listings from the big marketplaces.
+  if (domain.endsWith('amazon.com') && !lower.includes('/dp/') && !lower.includes('/gp/product')) {
+    return true;
+  }
+  if (domain.endsWith('ebay.com') && !lower.includes('/itm/')) return true;
+  if (
+    (domain.endsWith('alibaba.com') || domain.endsWith('aliexpress.com')) &&
+    !lower.includes('product-detail') &&
+    !lower.includes('/item/')
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -849,17 +864,18 @@ export async function runExtractStage(
         continue;
       }
 
+      const known = KNOWN_DISTRIBUTORS[candidate.domain];
       const supplier = await prisma.supplier.upsert({
         where: { domain: candidate.domain },
         create: {
           domain: candidate.domain,
-          name: draft.supplierName ?? candidate.domain,
+          name: draft.supplierName ?? known?.name ?? candidate.domain,
           website: `https://${candidate.domain}`,
-          country: draft.country ?? guessCountry(candidate.domain),
+          country: draft.country ?? known?.country ?? guessCountry(candidate.domain),
         },
         update: {
-          name: draft.supplierName ?? undefined,
-          country: draft.country ?? undefined,
+          name: draft.supplierName ?? known?.name ?? undefined,
+          country: draft.country ?? known?.country ?? undefined,
         },
       });
 
@@ -999,11 +1015,46 @@ function guessCountry(domain: string): string | null {
     uk: 'GB',
     fr: 'FR',
     it: 'IT',
+    es: 'ES',
+    pt: 'PT',
+    nl: 'NL',
+    be: 'BE',
+    at: 'AT',
+    ch: 'CH',
+    se: 'SE',
+    no: 'NO',
+    dk: 'DK',
+    fi: 'FI',
+    pl: 'PL',
+    cz: 'CZ',
+    hu: 'HU',
+    ro: 'RO',
+    gr: 'GR',
+    ie: 'IE',
+    il: 'IL',
+    tr: 'TR',
+    ae: 'AE',
+    sa: 'SA',
+    za: 'ZA',
     in: 'IN',
+    th: 'TH',
+    my: 'MY',
+    id: 'ID',
+    ph: 'PH',
+    vn: 'VN',
+    hk: 'HK',
+    au: 'AU',
+    nz: 'NZ',
+    br: 'BR',
+    ar: 'AR',
+    cl: 'CL',
     ca: 'CA',
     mx: 'MX',
     sg: 'SG',
+    ru: 'RU',
+    ua: 'UA',
     us: 'US',
+    eu: 'EU',
     com: null,
   };
   if (!tld) return null;
