@@ -13,10 +13,13 @@ export {
 } from './security/url.js';
 export { safeFetchText } from './security/safe-fetch.js';
 export { identifyManufacturerPartNumber, MPN_MIN_CONFIDENCE } from './identity/identify-mpn.js';
-export { createSearchSchema } from './search/schema.js';
-export type { CreateSearchInput } from './search/schema.js';
+export { createSearchSchema, createBatchSchema, batchItemSchema } from './search/schema.js';
+export type { CreateSearchInput, CreateBatchInput, BatchItemInput } from './search/schema.js';
 export {
   createSearchJob,
+  createMpnSearchJob,
+  createBatchSearchJobs,
+  getBatchJobs,
   getSearchJob,
   listJobEvents,
   listJobOffers,

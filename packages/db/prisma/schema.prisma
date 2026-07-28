@@ -96,6 +96,7 @@ model Part {
 model SearchJob {
   id                       String            @id @default(cuid())
   orgId                    String?           @map("org_id")
+  batchId                  String?           @map("batch_id")
   inputType                SearchInputType   @map("input_type")
   inputValue               String            @map("input_value")
   rawSourceUrl             String?           @map("raw_source_url")
@@ -130,6 +131,7 @@ model SearchJob {
 
   @@index([orgId, createdAt])
   @@index([status, createdAt])
+  @@index([batchId, createdAt])
   @@map("search_jobs")
 }
 

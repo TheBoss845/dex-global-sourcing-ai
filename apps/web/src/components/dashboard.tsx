@@ -205,10 +205,24 @@ function fmtUsd(value: string | null): string | null {
   return num.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
+type BatchJobRow = {
+  id: string;
+  mpn: string;
+  description: string | null;
+  status: string;
+  offerCount: number;
+  errorMessage?: string | null;
+};
+
 export function Dashboard() {
+  const [mode, setMode] = useState<'single' | 'batch'>('single');
   const [url, setUrl] = useState('');
   const [forceRefresh, setForceRefresh] = useState(false);
   const [job, setJob] = useState<SearchJob | null>(null);
+  const [batchText, setBatchText] = useState('');
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const [batchJobs, setBatchJobs] = useState<BatchJobRow[]>([]);
+  const [batchStarting, setBatchStarting] = useState(false);
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [offers, setOffers] = useState<OfferRow[]>([]);
   const [query, setQuery] = useState('');
@@ -365,6 +379,88 @@ export function Dashboard() {
       setSubmitting(false);
     }
   }
+
+  async function startBatch(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const items = batchText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const sep = line.includes('\t') ? '\t' : ',';
+        const idx = line.indexOf(sep);
+        if (idx === -1) return { mpn: line };
+        return {
+          mpn: line.slice(0, idx).trim(),
+          description: line.slice(idx + 1).trim() || undefined,
+        };
+      })
+      .filter((item) => item.mpn.length >= 2);
+
+    if (items.length === 0) {
+      setError('Add at least one part number (one per line: PART-NUMBER, description)');
+      return;
+    }
+
+    setBatchStarting(true);
+    setBatchJobs([]);
+    setBatchId(null);
+    try {
+      const res = await fetch('/api/batches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ items, forceRefresh }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to start the report');
+      setBatchId(data.batchId);
+      setBatchJobs(
+        (data.jobs as Array<{ id: string; mpn: string; status: string }>).map((j) => ({
+          ...j,
+          description: null,
+          offerCount: 0,
+        })),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start the report');
+    } finally {
+      setBatchStarting(false);
+    }
+  }
+
+  const batchDone = batchJobs.length > 0 && batchJobs.every((j) => TERMINAL.has(j.status));
+
+  useEffect(() => {
+    if (!batchId || batchJobs.length === 0 || batchDone) return;
+    let cancelled = false;
+
+    async function pollBatch() {
+      // Serverless mode: advance up to two running parts per cycle.
+      const active = batchJobs.filter((j) => !TERMINAL.has(j.status)).slice(0, 2);
+      for (const item of active) {
+        if (cancelled) return;
+        await fetch(`/api/searches/${item.id}/tick`, { method: 'POST' }).catch(() => undefined);
+      }
+      if (cancelled) return;
+      const res = await fetch(`/api/batches/${batchId}`).catch(() => null);
+      if (!res?.ok || cancelled) return;
+      const data = await res.json();
+      // Only trigger a re-render when something actually changed.
+      setBatchJobs((prev) => {
+        const next = (data.jobs ?? []) as BatchJobRow[];
+        return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+      });
+    }
+
+    void pollBatch();
+    const handle = setInterval(() => void pollBatch(), 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [batchId, batchDone, batchJobs]);
 
   async function cancelJob() {
     if (!job?.id || TERMINAL.has(job.status)) return;
@@ -642,23 +738,164 @@ export function Dashboard() {
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 md:px-8">
         {/* Hero + search */}
         <section className="dex-fade-up">
-          {!job ? (
+          {!job && !batchId ? (
             <div className="mb-6 max-w-3xl">
               <h1 className="font-display text-3xl font-semibold tracking-tight text-dex-brand md:text-[2.6rem] md:leading-[1.15]">
                 Source any part, worldwide,
-                <br className="hidden md:block" /> from a single link.
+                <br className="hidden md:block" /> in one report.
               </h1>
               <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-dex-muted">
-                Paste a product page. DEX pinpoints the exact manufacturer part number, then
-                searches global distributors and ranks the best supplier options — with prices,
-                stock, and lead times.
+                Paste a parts list or a product link. DEX finds up to 10 vendors per part —
+                with prices, stock, and lead times — and builds one downloadable report.
               </p>
+            </div>
+          ) : null}
+
+          <div className="mb-4 inline-flex rounded-xl border border-dex-border bg-dex-bg-elevated p-1 shadow-card">
+            <button
+              type="button"
+              onClick={() => setMode('batch')}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                mode === 'batch' ? 'bg-dex-accent text-white' : 'text-dex-muted hover:text-dex-fg'
+              }`}
+            >
+              Parts list report
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('single')}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                mode === 'single' ? 'bg-dex-accent text-white' : 'text-dex-muted hover:text-dex-fg'
+              }`}
+            >
+              Single product link
+            </button>
+          </div>
+
+          {mode === 'batch' ? (
+            <form
+              onSubmit={(e) => void startBatch(e)}
+              className="rounded-2xl border border-dex-border bg-dex-bg-elevated p-5 shadow-card md:p-6"
+            >
+              <label className="mb-2 block text-sm font-semibold text-dex-fg" htmlFor="parts-list">
+                Parts list — one per line: <span className="font-mono font-normal">PART-NUMBER, description</span>
+              </label>
+              <textarea
+                id="parts-list"
+                value={batchText}
+                onChange={(e) => setBatchText(e.target.value)}
+                rows={6}
+                placeholder={'PRT-17259, Flexible Qwiic Cable 100mm\nLM7805CT, 5V linear voltage regulator\nRPI-ZERO-13, Raspberry Pi Zero v1.3'}
+                className="w-full rounded-xl border border-dex-border bg-transparent px-4 py-3 font-mono text-sm text-dex-fg outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25"
+                spellCheck={false}
+              />
+              <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p className="text-xs text-dex-muted">
+                  Up to 50 parts per report. Each part gets up to 10 vendors with prices.
+                </p>
+                <button
+                  type="submit"
+                  disabled={batchStarting || !batchText.trim() || (batchJobs.length > 0 && !batchDone)}
+                  className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-dex-accent px-6 py-3 font-semibold text-white shadow-card transition hover:brightness-110 disabled:opacity-50"
+                >
+                  {batchStarting || (batchJobs.length > 0 && !batchDone) ? <Spinner /> : null}
+                  {batchStarting
+                    ? 'Starting…'
+                    : batchJobs.length > 0 && !batchDone
+                      ? 'Building report…'
+                      : 'Build vendor report'}
+                </button>
+              </div>
+              {error ? (
+                <p className="mt-3 rounded-lg bg-dex-danger-soft px-3 py-2 text-sm text-dex-danger">
+                  {error}
+                </p>
+              ) : null}
+            </form>
+          ) : null}
+
+          {mode === 'batch' && batchJobs.length > 0 ? (
+            <div className="dex-fade-up mt-6 rounded-2xl border border-dex-border bg-dex-bg-elevated shadow-card">
+              <div className="flex flex-col gap-3 border-b border-dex-border p-5 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-dex-brand">
+                    Vendor report · {batchJobs.length} parts
+                  </h2>
+                  <p className="mt-0.5 text-sm text-dex-muted">
+                    {batchDone
+                      ? 'Finished — download the consolidated report below.'
+                      : `Working… ${batchJobs.filter((j) => TERMINAL.has(j.status)).length} of ${batchJobs.length} parts done. Keep this page open.`}
+                  </p>
+                </div>
+                {batchDone && batchId ? (
+                  <div className="flex gap-2">
+                    <a
+                      className="rounded-lg bg-dex-accent px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110"
+                      href={`/api/batches/${batchId}/export?format=xlsx`}
+                    >
+                      ↓ Excel report
+                    </a>
+                    <a
+                      className="rounded-lg border border-dex-border px-4 py-2 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
+                      href={`/api/batches/${batchId}/export?format=csv`}
+                    >
+                      ↓ CSV
+                    </a>
+                  </div>
+                ) : null}
+              </div>
+              <div className="dex-scroll overflow-x-auto">
+                <table className="min-w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-[11px] font-semibold tracking-wide text-dex-muted uppercase">
+                      <th className="px-5 py-3">Part number</th>
+                      <th className="px-4 py-3">Description</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Vendors</th>
+                      <th className="px-4 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batchJobs.map((item) => (
+                      <tr key={item.id} className="border-t border-dex-border/70">
+                        <td className="px-5 py-3 font-medium text-dex-fg">{item.mpn}</td>
+                        <td className="max-w-[280px] truncate px-4 py-3 text-dex-muted">
+                          {item.description ?? '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge status={item.status} />
+                        </td>
+                        <td className="px-4 py-3 text-dex-fg">{item.offerCount}</td>
+                        <td className="px-4 py-3 text-right">
+                          {TERMINAL.has(item.status) && item.offerCount > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMode('single');
+                                setJob({
+                                  id: item.id,
+                                  status: item.status,
+                                  inputValue: item.mpn,
+                                  offerCount: item.offerCount,
+                                } as SearchJob);
+                              }}
+                              className="rounded-lg border border-dex-border px-3 py-1.5 text-xs font-semibold text-dex-accent transition hover:bg-dex-accent-soft"
+                            >
+                              View vendors
+                            </button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : null}
 
           <form
             onSubmit={startSearch}
-            className="rounded-2xl border border-dex-border bg-dex-bg-elevated p-5 shadow-card md:p-6"
+            className={`rounded-2xl border border-dex-border bg-dex-bg-elevated p-5 shadow-card md:p-6 ${mode === 'single' ? '' : 'hidden'}`}
           >
             <label className="mb-2 block text-sm font-semibold text-dex-fg" htmlFor="product-url">
               Product page URL
@@ -750,7 +987,7 @@ export function Dashboard() {
         </section>
 
         {/* Progress */}
-        {job ? (
+        {mode === 'single' && job ? (
           <section className="dex-fade-up mt-6 grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
             <div className="rounded-2xl border border-dex-border bg-dex-bg-elevated p-5 shadow-card">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -837,7 +1074,7 @@ export function Dashboard() {
         ) : null}
 
         {/* Stats */}
-        {job && offers.length > 0 ? (
+        {mode === 'single' && job && offers.length > 0 ? (
           <section className="dex-fade-up mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
             <StatCard label="Supplier offers" value={String(stats.offerCount)} />
             <StatCard label="Lowest price" value={stats.lowestUsd} hint="USD, best-effort" />
@@ -847,7 +1084,9 @@ export function Dashboard() {
         ) : null}
 
         {/* Results */}
-        <section className="dex-fade-up mt-6 rounded-2xl border border-dex-border bg-dex-bg-elevated shadow-card">
+        <section
+          className={`dex-fade-up mt-6 rounded-2xl border border-dex-border bg-dex-bg-elevated shadow-card ${mode === 'single' ? '' : 'hidden'}`}
+        >
           <div className="flex flex-col gap-3 border-b border-dex-border p-5 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="font-display text-lg font-semibold text-dex-brand">
