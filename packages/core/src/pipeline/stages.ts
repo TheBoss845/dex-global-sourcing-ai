@@ -7,6 +7,7 @@ import {
   enrichSearchResults,
   identifyPartFromPage,
   isAiEnabled,
+  sameManufacturer,
   verifyVendorOffer,
 } from '@dex/ai';
 import {
@@ -940,21 +941,9 @@ function manufacturersCompatible(
   actual?: string | null,
 ): boolean {
   if (!expected?.trim() || !actual?.trim()) return true;
-  const left = expected.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const right = actual.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (!left || !right) return true;
-  if (left.includes(right) || right.includes(left)) return true;
-  // Common abbreviation pairs
-  const aliases: Record<string, string[]> = {
-    TI: ['TEXASINSTRUMENTS', 'TEXASINSTRUMENT'],
-    TEXASINSTRUMENTS: ['TI', 'TEXASINSTRUMENT'],
-    ST: ['STMICROELECTRONICS', 'STMICRO'],
-    STMICROELECTRONICS: ['ST', 'STMICRO'],
-  };
-  const leftAliases = aliases[left] ?? [];
-  const rightAliases = aliases[right] ?? [];
-  if (leftAliases.includes(right) || rightAliases.includes(left)) return true;
-  return false;
+  // Full alias knowledge base: TI/Texas Instruments, HP/Compaq/HPE,
+  // ABB/Baldor, TE/Tyco/AMP/Crompton, Dell/EMC, and ~70 more identities.
+  return sameManufacturer(expected, actual);
 }
 
 function brandHintFromUrl(rawUrl: string): string | undefined {

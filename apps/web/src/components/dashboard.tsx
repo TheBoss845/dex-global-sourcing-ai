@@ -67,12 +67,18 @@ type JobEvent = {
 
 const TERMINAL = new Set(['completed', 'completed_with_errors', 'failed', 'cancelled']);
 
+/** The ten-stage DEX verification pipeline, mapped to job statuses. */
 const PIPELINE_STEPS = [
-  { key: 'read', label: 'Read page', statuses: ['queued', 'validating', 'fetching_source'] },
-  { key: 'identify', label: 'Identify part', statuses: ['extracting_identity', 'identifying_mpn'] },
-  { key: 'discover', label: 'Find suppliers', statuses: ['discovering'] },
-  { key: 'extract', label: 'Extract offers', statuses: ['extracting', 'normalizing'] },
-  { key: 'finish', label: 'Rank & finish', statuses: ['enriching'] },
+  { key: 'intake', label: 'Intake', statuses: ['queued'] },
+  { key: 'validate', label: 'Validate', statuses: ['validating'] },
+  { key: 'read', label: 'Read source', statuses: ['fetching_source'] },
+  { key: 'identity', label: 'Extract identity', statuses: ['extracting_identity'] },
+  { key: 'identify', label: 'Identify part', statuses: ['identifying_mpn'] },
+  { key: 'discover', label: 'Search worldwide', statuses: ['discovering'] },
+  { key: 'extract', label: 'Extract offers', statuses: ['extracting'] },
+  { key: 'verify', label: 'AI verify', statuses: ['extracting_verify'] },
+  { key: 'normalize', label: 'Normalize prices', statuses: ['normalizing'] },
+  { key: 'rank', label: 'Rank & audit', statuses: ['enriching'] },
 ] as const;
 
 function DexLogo({ size = 34 }: { size?: number }) {
@@ -175,7 +181,7 @@ function StageStepper({ status }: { status: string }) {
               }`}
             />
             <span
-              className={`hidden text-[11px] font-medium sm:block ${
+              className={`hidden text-[10px] leading-tight font-medium lg:block ${
                 complete || current ? 'text-dex-fg' : 'text-dex-muted'
               }`}
             >
@@ -1163,7 +1169,12 @@ export function Dashboard() {
           <section className="dex-fade-up mt-6 grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
             <div className="rounded-2xl border border-dex-border bg-dex-bg-elevated p-5 shadow-card">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="font-display text-lg font-semibold text-dex-brand">Pipeline</h2>
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-dex-brand">
+                    Verification pipeline
+                  </h2>
+                  <p className="text-xs text-dex-muted">10-stage sourcing &amp; verification system</p>
+                </div>
                 <StatusBadge status={job.status} />
               </div>
 
