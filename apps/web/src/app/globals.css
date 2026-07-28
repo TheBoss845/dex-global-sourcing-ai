@@ -1,0 +1,48 @@
+@import 'tailwindcss';
+
+:root {
+  --dex-bg: #eef2f6;
+  --dex-bg-elevated: #ffffff;
+  --dex-fg: #15202b;
+  --dex-muted: #5b6b7c;
+  --dex-accent: #1f4b99;
+  --dex-border: #cfd8e3;
+  --dex-brand: #0b1c2c;
+  --dex-ok: #1f7a4d;
+  --dex-warn: #9a6b00;
+}
+
+.dark {
+  --dex-bg: #0f1419;
+  --dex-bg-elevated: #1a222c;
+  --dex-fg: #e8eef4;
+  --dex-muted: #9aa8b6;
+  --dex-accent: #4d82e8;
+  --dex-border: #2a3542;
+  --dex-brand: #f2f6fa;
+  --dex-ok: #3dba7c;
+  --dex-warn: #e0b34d;
+}
+
+@theme inline {
+  --color-dex-bg: var(--dex-bg);
+  --color-dex-bg-elevated: var(--dex-bg-elevated);
+  --color-dex-fg: var(--dex-fg);
+  --color-dex-muted: var(--dex-muted);
+  --color-dex-accent: var(--dex-accent);
+  --color-dex-border: var(--dex-border);
+  --color-dex-brand: var(--dex-brand);
+  --color-dex-ok: var(--dex-ok);
+  --color-dex-warn: var(--dex-warn);
+  --font-sans: 'Source Sans 3', 'Segoe UI', 'Helvetica Neue', sans-serif;
+  --font-display: 'IBM Plex Sans', 'Source Sans 3', sans-serif;
+}
+
+body {
+  background:
+    radial-gradient(1000px 520px at 0% -10%, rgba(31, 75, 153, 0.14), transparent 55%),
+    radial-gradient(800px 420px at 100% 0%, rgba(45, 120, 110, 0.1), transparent 50%),
+    var(--dex-bg);
+  color: var(--dex-fg);
+  min-height: 100vh;
+}
