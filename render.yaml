@@ -51,6 +51,10 @@ services:
         sync: false
       - key: DEX_EXTRA_ALLOWED_EMAILS
         value: lmfelcher@gmail.com
+      - key: AUTH_SHOW_VERIFY_LINK
+        value: "true"
+      - key: AUTH_OWNER_CODE
+        sync: false
 
   - type: worker
     name: dex-worker

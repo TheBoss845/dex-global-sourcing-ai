@@ -37,6 +37,9 @@ APP_BASE_URL=https://your-app.onrender.com
 RESEND_API_KEY=re_...
 EMAIL_FROM=DEX Sourcing <noreply@your-verified-domain.com>
 # DEX_EXTRA_ALLOWED_EMAILS=lmfelcher@gmail.com
+# Optional: show on-page verify link / owner code unlock (Render)
+# AUTH_SHOW_VERIFY_LINK=true
+# AUTH_OWNER_CODE=pick-a-private-code
 ```
 
 **Supported pages:** public HTML product pages that expose a manufacturer part number (JSON-LD, labeled fields, or clear product URL). Bot-walled / JS-only distributor pages may fail honestly until a browser fetcher is added.

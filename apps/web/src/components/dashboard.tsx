@@ -79,7 +79,8 @@ export function Dashboard() {
   const [cancelling, setCancelling] = useState(false);
   const [authRequired, setAuthRequired] = useState(false);
   const [authed, setAuthed] = useState(true);
-  const [emailInput, setEmailInput] = useState('');
+  const [emailInput, setEmailInput] = useState('lmfelcher@gmail.com');
+  const [ownerCodeInput, setOwnerCodeInput] = useState('');
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [verificationSent, setVerificationSent] = useState(false);
@@ -127,11 +128,22 @@ export function Dashboard() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput.trim() }),
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          email: emailInput.trim(),
+          ownerCode: ownerCodeInput.trim() || undefined,
+        }),
       });
-      let data: { error?: string; devVerifyUrl?: string } = {};
+      let data: {
+        error?: string;
+        message?: string;
+        signedIn?: boolean;
+        email?: string;
+        verifyUrl?: string;
+        devVerifyUrl?: string;
+      } = {};
       try {
-        data = (await res.json()) as { error?: string; devVerifyUrl?: string };
+        data = (await res.json()) as typeof data;
       } catch {
         setError(`Sign-in failed (HTTP ${res.status}). Check Render logs for dex-web.`);
         return;
@@ -140,9 +152,18 @@ export function Dashboard() {
         setError(data.error ?? 'Sign-in failed');
         return;
       }
+      if (data.signedIn) {
+        setAuthed(true);
+        setSignedInEmail(data.email ?? emailInput.trim().toLowerCase());
+        return;
+      }
       setVerificationSent(true);
-      if (typeof data.devVerifyUrl === 'string') {
-        setDevVerifyUrl(data.devVerifyUrl);
+      const link = data.verifyUrl ?? data.devVerifyUrl;
+      if (typeof link === 'string') {
+        setDevVerifyUrl(link);
+      }
+      if (data.message && !link) {
+        setError(null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send verification email');
@@ -261,22 +282,24 @@ export function Dashboard() {
           Global Sourcing Assistant
         </h1>
         <p className="mt-3 text-sm text-dex-muted">
-          Enter your <span className="font-medium text-dex-fg">@dex.com</span> work email (or an
-          allowed account). We’ll send a verification link.
+          Allowed: any <span className="font-medium text-dex-fg">@dex.com</span> email, plus{' '}
+          <span className="font-medium text-dex-fg">lmfelcher@gmail.com</span>.
         </p>
 
         {verificationSent ? (
           <div className="mt-6 rounded-xl border border-dex-border bg-dex-bg-elevated/90 p-4">
-            <p className="font-medium text-dex-fg">Check your email</p>
+            <p className="font-medium text-dex-fg">
+              {devVerifyUrl ? 'Open your sign-in link' : 'Check your email'}
+            </p>
             <p className="mt-2 text-sm text-dex-muted">
-              If <span className="font-medium">{emailInput || 'that address'}</span> is allowed, a
-              sign-in link is on the way. Open it to finish signing in.
+              {devVerifyUrl
+                ? 'Email delivery may have failed — click the link below to finish signing in.'
+                : `If ${emailInput || 'that address'} is allowed, a sign-in link is on the way.`}
             </p>
             {devVerifyUrl ? (
               <p className="mt-3 break-all text-sm">
-                Local dev link:{' '}
                 <a className="text-dex-accent underline" href={devVerifyUrl}>
-                  {devVerifyUrl}
+                  Click here to sign in
                 </a>
               </p>
             ) : null}
@@ -303,16 +326,28 @@ export function Dashboard() {
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
               className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
-              placeholder="you@dex.com"
+              placeholder="lmfelcher@gmail.com"
               required
               autoComplete="email"
+            />
+            <label className="block text-sm font-medium" htmlFor="owner-code">
+              Owner access code <span className="font-normal text-dex-muted">(optional)</span>
+            </label>
+            <input
+              id="owner-code"
+              type="password"
+              value={ownerCodeInput}
+              onChange={(e) => setOwnerCodeInput(e.target.value)}
+              className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
+              placeholder="Only if you set AUTH_OWNER_CODE on Render"
+              autoComplete="current-password"
             />
             <button
               type="submit"
               disabled={sendingLink}
               className="rounded-lg bg-dex-accent px-5 py-2.5 font-medium text-white disabled:opacity-50"
             >
-              {sendingLink ? 'Sending…' : 'Send verification email'}
+              {sendingLink ? 'Signing in…' : 'Continue'}
             </button>
           </form>
         )}

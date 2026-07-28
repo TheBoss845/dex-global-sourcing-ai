@@ -82,6 +82,7 @@ EMAIL_FROM=DEX Sourcing <noreply@your-domain.com>
 
 - Only **@dex.com** emails can request/complete verification by default.
 - Owner/guest exceptions: set `DEX_EXTRA_ALLOWED_EMAILS` (Blueprint includes `lmfelcher@gmail.com`).
+- If Resend won’t send: set `AUTH_SHOW_VERIFY_LINK=true` (on-page link) and/or `AUTH_OWNER_CODE=...` (instant unlock for allowlisted email).
 - If `APP_BASE_URL` is empty, the app falls back to Render’s `RENDER_EXTERNAL_URL`, then the request host.
 - Free/starter plans may sleep; first request can be slow.
 - After changing env vars, trigger a **Manual Deploy**.
