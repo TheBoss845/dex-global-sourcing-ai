@@ -213,6 +213,16 @@ export async function GET(request: Request, { params }: Params) {
     });
     headerRow.height = 20;
 
+    // Numeric columns become real numbers so buyers can sum/sort in Excel.
+    const numericKeys = new Set<keyof ReportRow>([
+      'quantity',
+      'price',
+      'priceUsd',
+      'lineTotalUsd',
+      'previousBestUsd',
+      'match',
+    ]);
+
     // Data rows with alternating background per part group
     let previousPart = '';
     let shade = false;
@@ -221,7 +231,15 @@ export async function GET(request: Request, { params }: Params) {
         shade = !shade;
         previousPart = row.partNumber;
       }
-      const excelRow = sheet.addRow(headers.map((h) => row[h.key]));
+      const excelRow = sheet.addRow(
+        headers.map((h) => {
+          const value = row[h.key];
+          if (numericKeys.has(h.key) && value !== '' && Number.isFinite(Number(value))) {
+            return Number(value);
+          }
+          return value;
+        }),
+      );
       if (shade) {
         excelRow.eachCell({ includeEmpty: true }, (cell) => {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F5F9' } };

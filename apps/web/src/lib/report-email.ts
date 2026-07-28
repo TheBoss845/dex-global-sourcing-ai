@@ -44,8 +44,9 @@ async function buildAttachment(batchId: string): Promise<Buffer | null> {
         rank: index + 1,
         vendor: offer.supplier.name ?? offer.supplier.domain,
         country: offer.supplier.country ?? '',
-        usd: usd != null ? usd.toFixed(4) : '',
-        total: usd != null && job.quantity != null ? (usd * job.quantity).toFixed(2) : '',
+        usd: usd != null ? Number(usd.toFixed(4)) : '',
+        total:
+          usd != null && job.quantity != null ? Number((usd * job.quantity).toFixed(2)) : '',
         stock: offer.stockQuantity ?? offer.availability ?? '',
         url: offer.productUrl,
       });

@@ -582,6 +582,7 @@ export function Dashboard() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to start the report');
       setBatchId(data.batchId);
+      window.localStorage.setItem('dex:activeBatch', data.batchId);
       setParsedItems(null);
       setParseMethod(null);
       setBatchJobs(
@@ -599,6 +600,53 @@ export function Dashboard() {
   }
 
   const batchDone = batchJobs.length > 0 && batchJobs.every((j) => TERMINAL.has(j.status));
+
+  // Resume a running report after an accidental refresh or tab close.
+  useEffect(() => {
+    if (!authed || batchId) return;
+    const stored = window.localStorage.getItem('dex:activeBatch');
+    if (!stored) return;
+    let cancelled = false;
+    void fetch(`/api/batches/${stored}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.jobs?.length) {
+          if (!data) window.localStorage.removeItem('dex:activeBatch');
+          return;
+        }
+        const jobs = data.jobs as BatchJobRow[];
+        if (jobs.some((j) => !TERMINAL.has(j.status))) {
+          setMode('batch');
+          setBatchId(stored);
+          setBatchJobs(jobs);
+        } else {
+          window.localStorage.removeItem('dex:activeBatch');
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [authed, batchId]);
+
+  useEffect(() => {
+    if (batchDone && batchId) {
+      window.localStorage.removeItem('dex:activeBatch');
+    }
+  }, [batchDone, batchId]);
+
+  async function stopBatch() {
+    const active = batchJobs.filter((j) => !TERMINAL.has(j.status));
+    await Promise.all(
+      active.map((item) =>
+        fetch(`/api/searches/${item.id}/cancel`, { method: 'POST' }).catch(() => undefined),
+      ),
+    );
+    setBatchJobs((prev) =>
+      prev.map((row) => (TERMINAL.has(row.status) ? row : { ...row, status: 'cancelled' })),
+    );
+    window.localStorage.removeItem('dex:activeBatch');
+  }
 
   useEffect(() => {
     if (!batchId || batchJobs.length === 0 || batchDone) return;
@@ -1117,6 +1165,15 @@ export function Dashboard() {
                     />
                   </div>
                 </div>
+                {!batchDone && batchJobs.some((j) => !TERMINAL.has(j.status)) ? (
+                  <button
+                    type="button"
+                    onClick={() => void stopBatch()}
+                    className="shrink-0 self-start rounded-lg border border-dex-border px-4 py-2 text-sm font-medium text-dex-danger transition hover:bg-dex-danger-soft"
+                  >
+                    Stop
+                  </button>
+                ) : null}
                 {batchId && batchJobs.some((j) => TERMINAL.has(j.status)) ? (
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     <div className="flex gap-2">
