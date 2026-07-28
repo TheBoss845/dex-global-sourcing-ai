@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { Prisma, prisma } from '@dex/db';
 import { enrichSearchResults, identifyPartFromPage, isAiEnabled } from '@dex/ai';
@@ -97,11 +98,21 @@ function visibleTextExcerpt(html: string, maxChars = 9000): string {
 
 async function storeArtifact(localPath: string, body: string): Promise<{ hash: string; key: string }> {
   const hash = createHash('sha256').update(body).digest('hex');
-  const dir = path.resolve(localPath);
-  await mkdir(dir, { recursive: true });
   const key = `${hash}.html`;
-  await writeFile(path.join(dir, key), body, 'utf8');
-  return { hash, key };
+  // Serverless platforms (Netlify/Lambda) have read-only filesystems except
+  // the OS temp dir — try the configured path first, then fall back.
+  const candidates = [path.resolve(localPath), path.join(os.tmpdir(), 'dex-artifacts')];
+  for (const dir of candidates) {
+    try {
+      await mkdir(dir, { recursive: true });
+      await writeFile(path.join(dir, key), body, 'utf8');
+      return { hash, key };
+    } catch {
+      // try the next location
+    }
+  }
+  // Artifacts are audit aids only — never fail a search over storage.
+  return { hash, key: '' };
 }
 
 export async function runResolveStage(jobId: string, env: PipelineEnv): Promise<void> {
