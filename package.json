@@ -1,0 +1,12 @@
+{
+  "name": "dex-sourcing",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "preinstall": "node -e \"const ua=process.env.npm_config_user_agent||''; if(!ua.includes('pnpm')){console.error('Use pnpm to install dependencies.'); process.exit(1)}\""
+  }
+}

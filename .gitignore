@@ -1,0 +1,47 @@
+# dependencies
+node_modules
+.pnpm-store
+
+# builds
+dist
+build
+.next
+out
+.turbo
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+
+# logs / coverage
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+coverage
+.nyc_output
+
+# IDE / OS
+.DS_Store
+.idea
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Prisma
+packages/db/prisma/*.db
+packages/db/prisma/*.db-journal
+
+# artifacts / local storage
+.artifacts
+tmp
+temp
+
+# Playwright
+test-results
+playwright-report
+playwright/.cache
+
+# TypeScript
+*.tsbuildinfo
