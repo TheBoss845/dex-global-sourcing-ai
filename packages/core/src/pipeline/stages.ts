@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Prisma, prisma } from '@dex/db';
-import { enrichSearchResults, isAiEnabled } from '@dex/ai';
+import { enrichSearchResults, identifyPartFromPage, isAiEnabled } from '@dex/ai';
 import {
   TavilySearchProvider,
   extractGenericOffer,
@@ -32,6 +32,67 @@ export type PipelineEnv = {
 
 function budgetOf(job: { budgetJson: unknown }): JobBudget {
   return job.budgetJson as JobBudget;
+}
+
+/**
+ * Clean a page/product title into a usable product identifier.
+ * Cuts marketing/site suffixes but keeps versions ("Raspberry Pi Zero - Version 1.3").
+ */
+function cleanProductName(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  let name = raw.trim();
+  for (const sep of [' : ', ' | ', ' — ', ' – ', ' · ']) {
+    const idx = name.indexOf(sep);
+    if (idx > 5) name = name.slice(0, idx).trim();
+  }
+  if (name.length < 6 || name.length > 120) return null;
+  if (!/[a-zA-Z]/.test(name)) return null;
+  if (name.split(/\s+/).length < 2) return null;
+  return name;
+}
+
+const NAME_STOPWORDS = new Set([
+  'version',
+  'ver',
+  'the',
+  'and',
+  'for',
+  'with',
+  'new',
+  'original',
+  'official',
+  'edition',
+  'genuine',
+]);
+
+/** Every significant token of the product name must appear in the haystack. */
+function nameTokensMatch(name: string, haystack: string): boolean {
+  const hay = haystack.toLowerCase();
+  const tokens = name
+    .toLowerCase()
+    .replace(/[^a-z0-9.\s]/g, ' ')
+    .split(/\s+/)
+    .map((t) => t.replace(/^\.+|\.+$/g, ''))
+    .filter((t) => t.length >= 2 || /\d/.test(t))
+    .filter((t) => !NAME_STOPWORDS.has(t));
+  if (!tokens.length) return false;
+  return tokens.every((t) => hay.includes(t));
+}
+
+/** Strip markup and return readable page text (JSON-LD kept — it names products). */
+function visibleTextExcerpt(html: string, maxChars = 9000): string {
+  const jsonLd = [...html.matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)]
+    .map((m) => m[1]!.trim())
+    .join('\n')
+    .slice(0, 3000);
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;|&amp;|&quot;|&#39;|&lt;|&gt;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `${jsonLd}\n${text}`.slice(0, maxChars);
 }
 
 async function storeArtifact(localPath: string, body: string): Promise<{ hash: string; key: string }> {
@@ -139,7 +200,7 @@ export async function runResolveStage(jobId: string, env: PipelineEnv): Promise<
     stage: 'identifying_mpn',
   });
 
-  const identified = identifyManufacturerPartNumber({
+  let identified = identifyManufacturerPartNumber({
     mpn: identity.mpn,
     manufacturer: identity.manufacturer,
     brand: identity.brand,
@@ -150,6 +211,104 @@ export async function runResolveStage(jobId: string, env: PipelineEnv): Promise<
     evidence: identity.evidence,
     method: identity.method,
   });
+
+  // AI fallback: pages without a labeled MPN (typical retail pages) get one
+  // grounded identification attempt. The returned identifier must literally
+  // appear on the page, or it is discarded.
+  if ('failed' in identified && identified.failed && env.aiEnabled && env.openaiApiKey) {
+    await appendJobEvent(jobId, 'No labeled MPN found — asking AI to identify the product (grounded)', {
+      stage: 'identifying_mpn',
+    });
+    try {
+      const aiIdentity = await identifyPartFromPage({
+        apiKey: env.openaiApiKey,
+        model: env.openaiModel,
+        url: page.finalUrl || sourceUrl,
+        title: identity.title,
+        pageText: visibleTextExcerpt(page.body),
+      });
+      const candidate = aiIdentity?.partIdentifier?.trim();
+      const grounded =
+        candidate &&
+        aiIdentity!.confidence >= 0.7 &&
+        normalizeMpn(candidate).length >= 3 &&
+        normalizeMpn(page.body).includes(normalizeMpn(candidate));
+      if (grounded) {
+        identified = identifyManufacturerPartNumber({
+          mpn: candidate,
+          manufacturer: aiIdentity!.manufacturer || identity.manufacturer,
+          brand: identity.brand,
+          supplierSku: identity.supplierSku,
+          modelNumber: identity.modelNumber,
+          title: identity.title || aiIdentity!.productName,
+          description: identity.description,
+          evidence: [
+            ...identity.evidence,
+            {
+              value: candidate,
+              classification: 'mpn',
+              source: 'ai',
+              path: 'ai.partIdentifier',
+              score: Math.min(aiIdentity!.confidence, 0.86),
+            },
+          ],
+          method: 'ai_identity',
+        });
+        if (!('failed' in identified)) {
+          await appendJobEvent(
+            jobId,
+            `AI identified the product as ${candidate}${aiIdentity!.manufacturer ? ` (${aiIdentity!.manufacturer})` : ''} — verified against page text`,
+            { stage: 'identifying_mpn' },
+          );
+        }
+      }
+    } catch (error) {
+      await appendJobEvent(
+        jobId,
+        `AI identification unavailable (${error instanceof Error ? error.message.slice(0, 140) : 'error'}) — trying page title fallback`,
+        { stage: 'identifying_mpn', level: 'warn' },
+      );
+    }
+  }
+
+  // Deterministic fallback: use the page's own product title (JSON-LD / OpenGraph)
+  // as the search identifier. Never invented — it is literally the page's product name.
+  if ('failed' in identified && identified.failed) {
+    const structuredTitle =
+      identity.evidence.find(
+        (e) => e.classification === 'title' && (e.source === 'json_ld' || e.source === 'og'),
+      )?.value ?? identity.title;
+    const productName = cleanProductName(structuredTitle);
+    if (productName) {
+      identified = identifyManufacturerPartNumber({
+        mpn: productName,
+        manufacturer: identity.manufacturer,
+        brand: identity.brand,
+        supplierSku: identity.supplierSku,
+        modelNumber: identity.modelNumber,
+        title: identity.title,
+        description: identity.description,
+        evidence: [
+          ...identity.evidence,
+          {
+            value: productName,
+            classification: 'mpn',
+            source: 'page_title',
+            path: 'title.product_name',
+            score: 0.74,
+          },
+        ],
+        method: 'product_name',
+      });
+      if (!('failed' in identified)) {
+        await appendJobEvent(
+          jobId,
+          `No manufacturer part number published — searching by exact product name "${productName}" instead`,
+          { stage: 'identifying_mpn' },
+        );
+      }
+    }
+  }
 
   if ('failed' in identified && identified.failed) {
     await prisma.searchJob.update({
@@ -271,7 +430,10 @@ export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise
   }
 
   const provider = new TavilySearchProvider(env.tavilyApiKey);
-  const queries = buildSearchQueries(job.part.normalizedMpn, job.part.manufacturer);
+  // Search with the human-readable part text (RC0805FR-0710KL, not RC0805FR0710KL):
+  // suppliers list parts the way manufacturers write them.
+  const searchTerm = job.part.originalMpn || job.part.rawMpn || job.part.normalizedMpn;
+  const queries = buildSearchQueries(searchTerm, job.part.manufacturer);
   const limitedQueries = queries.slice(0, budget.maxSerpQueries);
 
   const hits = [];
@@ -389,8 +551,8 @@ function buildSearchQueries(mpn: string, manufacturer?: string | null): string[]
   const base = [
     `"${mpn}" buy`,
     `"${mpn}" distributor`,
-    `"${mpn}" price datasheet -flight -airline -airport`,
-    `"${mpn}" "voltage regulator" OR IC OR semiconductor buy`,
+    `"${mpn}" price in stock -flight -airline -airport`,
+    `"${mpn}" order online supplier`,
   ];
   if (manufacturer) {
     base.unshift(`"${mpn}" "${manufacturer}" buy`);
@@ -525,8 +687,23 @@ export async function runExtractStage(jobId: string, env: PipelineEnv): Promise<
           draft.description ?? identity.title,
           job.part.originalMpn,
         );
-      const exact = exactStructured || exactCommerce;
-      const matchConfidence = exactStructured ? 1 : exactCommerce ? 0.82 : 0;
+      // Name-identifier accept: when the part was identified by product name
+      // (no published MPN), require every significant name token plus commerce signals.
+      const identifierIsName = /\s/.test((job.part.originalMpn || '').trim());
+      const exactName =
+        !exactStructured &&
+        !exactCommerce &&
+        identifierIsName &&
+        commerceSignals &&
+        nameTokensMatch(job.part.originalMpn, page.body) &&
+        !lowerIncludesAny(page.body, [
+          'compatible with',
+          'replacement for',
+          'substitute for',
+          'alternative to',
+        ]);
+      const exact = exactStructured || exactCommerce || exactName;
+      const matchConfidence = exactStructured ? 1 : exactCommerce ? 0.82 : exactName ? 0.75 : 0;
       const offerManufacturer =
         draft.manufacturer ?? identity.manufacturer ?? identity.brand ?? null;
 
