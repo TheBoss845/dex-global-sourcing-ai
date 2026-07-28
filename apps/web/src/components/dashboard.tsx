@@ -708,6 +708,34 @@ export function Dashboard() {
                 Force refresh (skip cache)
               </label>
             </div>
+            {!job ? (
+              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-dex-border pt-4">
+                <span className="text-xs font-medium text-dex-muted">Try an example:</span>
+                {[
+                  {
+                    label: 'Raspberry Pi Zero',
+                    href: 'https://www.adafruit.com/product/2885',
+                  },
+                  {
+                    label: 'Adafruit Feather M4',
+                    href: 'https://www.adafruit.com/product/3857',
+                  },
+                  {
+                    label: 'SparkFun Qwiic Cable',
+                    href: 'https://www.sparkfun.com/flexible-qwiic-cable-100mm.html',
+                  },
+                ].map((example) => (
+                  <button
+                    key={example.href}
+                    type="button"
+                    onClick={() => setUrl(example.href)}
+                    className="rounded-full border border-dex-border bg-dex-bg px-3 py-1.5 text-xs font-medium text-dex-fg transition hover:border-dex-accent hover:text-dex-accent"
+                  >
+                    {example.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {error ? (
               <p className="mt-3 rounded-lg bg-dex-danger-soft px-3 py-2 text-sm text-dex-danger">
                 {error}
