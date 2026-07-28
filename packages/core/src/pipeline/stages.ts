@@ -460,8 +460,42 @@ export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise
 
   const hits = [];
   for (const query of limitedQueries) {
-    const batch = await provider.search(query, { maxResults: 8 });
-    hits.push(...batch);
+    try {
+      const batch = await provider.search(query, { maxResults: 8 });
+      hits.push(...batch);
+    } catch (error) {
+      // One failing query must not sink the whole search — log and continue.
+      await appendJobEvent(
+        jobId,
+        `One search query failed (${error instanceof Error ? error.message.slice(0, 80) : 'error'}) — continuing`,
+        { stage: 'discovering', level: 'warn' },
+      );
+    }
+  }
+
+  // Second wave: obscure parts often miss on strict quoted queries. When the
+  // first pass is thin, broaden with unquoted and description-based searches.
+  if (hits.length < 12) {
+    const relaxed: string[] = [];
+    const manufacturer = job.part.manufacturer?.trim();
+    relaxed.push(`${searchTerm} ${manufacturer ?? ''} buy price`.trim());
+    const keywords = descriptionKeywords(job.part.title ?? job.part.descriptionClean);
+    if (keywords) {
+      relaxed.push(`${manufacturer ?? ''} ${searchTerm} ${keywords} supplier`.trim());
+    }
+    await appendJobEvent(
+      jobId,
+      'Few strict matches — expanding with broader searches (manufacturer + description keywords)',
+      { stage: 'discovering' },
+    );
+    for (const query of relaxed.slice(0, 2)) {
+      try {
+        const batch = await provider.search(query, { maxResults: 8 });
+        hits.push(...batch);
+      } catch {
+        // best-effort second wave
+      }
+    }
   }
 
   const sourceHost = job.finalSourceUrl ? new URL(job.finalSourceUrl).hostname.toLowerCase() : '';
@@ -567,6 +601,22 @@ export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise
   }
 
   await enqueue(env.redisUrl, 'jobs-extract', 'extract', { jobId }, `extract-${jobId}`);
+}
+
+const DESCRIPTION_STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'type', 'series', 'model', 'part', 'new', 'used',
+]);
+
+/** First few significant words of a part description, for broadened searches. */
+function descriptionKeywords(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9.\s-]/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length >= 3 && !DESCRIPTION_STOPWORDS.has(token))
+    .slice(0, 4)
+    .join(' ');
 }
 
 function buildSearchQueries(mpn: string, manufacturer?: string | null): string[] {

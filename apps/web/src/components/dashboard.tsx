@@ -1091,6 +1091,25 @@ export function Dashboard() {
                             >
                               View vendors
                             </button>
+                          ) : item.status === 'failed' || item.status === 'cancelled' ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void fetch(`/api/searches/${item.id}/retry`, { method: 'POST' }).then(
+                                  () =>
+                                    setBatchJobs((prev) =>
+                                      prev.map((row) =>
+                                        row.id === item.id
+                                          ? { ...row, status: 'identifying_mpn', errorMessage: null }
+                                          : row,
+                                      ),
+                                    ),
+                                );
+                              }}
+                              className="rounded-lg border border-dex-border px-3 py-1.5 text-xs font-semibold text-dex-warn transition hover:bg-dex-warn-soft"
+                            >
+                              ↻ Retry
+                            </button>
                           ) : null}
                         </td>
                       </tr>
@@ -1274,9 +1293,24 @@ export function Dashboard() {
                 <p className="mt-4 text-sm leading-relaxed text-dex-fg">{job.summaryJson.summary}</p>
               ) : null}
               {job.errorMessage ? (
-                <p className="mt-4 rounded-lg bg-dex-danger-soft px-3 py-2 text-sm text-dex-danger">
-                  {job.errorMessage}
-                </p>
+                <div className="mt-4 rounded-lg bg-dex-danger-soft px-3 py-2.5 text-sm text-dex-danger">
+                  <p>{job.errorMessage}</p>
+                  {job.status === 'failed' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void fetch(`/api/searches/${job.id}/retry`, { method: 'POST' }).then(() =>
+                          setJob((prev) =>
+                            prev ? { ...prev, status: 'queued', errorMessage: null } : prev,
+                          ),
+                        );
+                      }}
+                      className="mt-2 rounded-lg border border-dex-danger/40 px-3 py-1.5 text-xs font-semibold text-dex-danger transition hover:bg-dex-danger-soft"
+                    >
+                      ↻ Try again
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
 
@@ -1490,10 +1524,13 @@ export function Dashboard() {
                           Searching global suppliers…
                         </div>
                       ) : job.status === 'failed' ? (
-                        <p className="text-sm text-dex-muted">
-                          No suppliers found. Try a product URL that clearly shows a manufacturer
-                          part number.
-                        </p>
+                        <div className="mx-auto max-w-md">
+                          <p className="text-sm font-medium text-dex-fg">No suppliers found</p>
+                          <p className="mt-1.5 text-sm text-dex-muted">
+                            Tips: add the manufacturer name (e.g. “ABB 29088391”), double-check the
+                            part number, or paste a product-page link instead. Then hit Try again.
+                          </p>
+                        </div>
                       ) : (
                         <p className="text-sm text-dex-muted">
                           No matching supplier offers for this part.
