@@ -129,7 +129,13 @@ export function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: emailInput.trim() }),
       });
-      const data = await res.json();
+      let data: { error?: string; devVerifyUrl?: string } = {};
+      try {
+        data = (await res.json()) as { error?: string; devVerifyUrl?: string };
+      } catch {
+        setError(`Sign-in failed (HTTP ${res.status}). Check Render logs for dex-web.`);
+        return;
+      }
       if (!res.ok) {
         setError(data.error ?? 'Sign-in failed');
         return;
@@ -138,8 +144,8 @@ export function Dashboard() {
       if (typeof data.devVerifyUrl === 'string') {
         setDevVerifyUrl(data.devVerifyUrl);
       }
-    } catch {
-      setError('Could not send verification email');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send verification email');
     } finally {
       setSendingLink(false);
     }

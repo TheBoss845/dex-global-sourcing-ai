@@ -48,6 +48,15 @@ export async function GET() {
       status: healthy ? 'ok' : 'degraded',
       checks,
       authRequired: process.env.NODE_ENV === 'production' || Boolean(process.env.AUTH_SECRET?.trim()),
+      email: {
+        resendKeySet: Boolean(
+          process.env.RESEND_API_KEY?.trim() || process.env.RESEND_API?.trim(),
+        ),
+        emailFromSet: Boolean(process.env.EMAIL_FROM?.trim()),
+        emailFrom: process.env.EMAIL_FROM?.trim()
+          ? process.env.EMAIL_FROM.trim().replace(/[^@\s<>a-zA-Z0-9._+-]/g, '*').slice(0, 80)
+          : null,
+      },
     },
     { status: healthy ? 200 : 503 },
   );
