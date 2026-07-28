@@ -442,8 +442,8 @@ export function Dashboard() {
             <div className="flex items-center gap-3">
               <DexLogo size={44} />
               <div>
-                <p className="font-display text-xs font-semibold tracking-[0.28em] text-dex-muted uppercase">
-                  DEX
+                <p className="font-display text-xs font-semibold tracking-[0.22em] text-dex-muted uppercase">
+                  Data Exchange Corporation
                 </p>
                 <h1 className="font-display text-xl font-semibold text-dex-brand">
                   Global Sourcing Assistant
@@ -522,11 +522,11 @@ export function Dashboard() {
             ) : null}
 
             <p className="mt-6 border-t border-dex-border pt-4 text-xs text-dex-muted">
-              Access is limited to DEX team accounts.
+              Access is limited to Data Exchange Corporation team accounts.
             </p>
           </div>
           <p className="mt-4 text-center text-xs text-dex-muted">
-            DEX Global Sourcing · procurement intelligence
+            DEX · Data Exchange Corporation · procurement intelligence
           </p>
         </div>
       </main>
@@ -541,8 +541,8 @@ export function Dashboard() {
           <div className="flex items-center gap-3">
             <DexLogo />
             <div className="leading-tight">
-              <p className="font-display text-[11px] font-semibold tracking-[0.28em] text-dex-muted uppercase">
-                DEX
+              <p className="font-display text-[10px] font-semibold tracking-[0.22em] text-dex-muted uppercase">
+                Data Exchange Corporation
               </p>
               <p className="font-display text-sm font-semibold text-dex-brand">
                 Global Sourcing Assistant
@@ -941,7 +941,7 @@ export function Dashboard() {
 
       <footer className="border-t border-dex-border">
         <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-2 px-4 py-5 text-xs text-dex-muted sm:flex-row md:px-8">
-          <p>© {new Date().getFullYear()} DEX · Global Sourcing Assistant</p>
+          <p>© {new Date().getFullYear()} Data Exchange Corporation (DEX) · Global Sourcing Assistant</p>
           <p>Procurement intelligence for the DEX team</p>
         </div>
       </footer>

@@ -1,5 +1,7 @@
 # DEX Global Sourcing Assistant
 
+**Data Exchange Corporation (DEX)** — internal sourcing platform.
+
 Paste a **public product-page URL** → click **Find Suppliers** → get the identified MPN and about **10** worldwide supplier options (best-effort).
 
 ## Architecture

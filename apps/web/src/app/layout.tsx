@@ -7,9 +7,10 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'sw
 const sora = Sora({ subsets: ['latin'], variable: '--font-sora', display: 'swap' });
 
 export const metadata: Metadata = {
-  title: 'DEX · Global Sourcing Assistant',
+  title: 'DEX · Global Sourcing Assistant | Data Exchange Corporation',
   description:
-    'Paste a product link — DEX identifies the exact manufacturer part number and finds vetted suppliers worldwide, with prices, stock, and lead times.',
+    'The Data Exchange Corporation sourcing platform. Paste a product link — DEX identifies the exact manufacturer part number and finds vetted suppliers worldwide, with prices, stock, and lead times.',
+  applicationName: 'DEX Global Sourcing Assistant',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
