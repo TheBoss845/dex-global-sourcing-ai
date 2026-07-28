@@ -351,3 +351,16 @@ model KnowledgeEvent {
   @@index([jobId])
   @@map("knowledge_events")
 }
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email, createdAt])
+  @@index([expiresAt])
+  @@map("email_verification_tokens")
+}
