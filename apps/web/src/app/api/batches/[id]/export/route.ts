@@ -267,10 +267,13 @@ export async function GET(request: Request, { params }: Params) {
   }
 
   const escape = (value: string) => `"${value.replaceAll('"', '""')}"`;
-  const csv = [
-    headers.map((h) => h.label).join(','),
-    ...rows.map((row) => headers.map((h) => escape(String(row[h.key] ?? ''))).join(',')),
-  ].join('\n');
+  // BOM + CRLF so Excel detects UTF-8 and splits columns correctly on every locale.
+  const csv =
+    '\ufeff' +
+    [
+      headers.map((h) => h.label).join(','),
+      ...rows.map((row) => headers.map((h) => escape(String(row[h.key] ?? ''))).join(',')),
+    ].join('\r\n');
 
   return new Response(csv, {
     headers: {
