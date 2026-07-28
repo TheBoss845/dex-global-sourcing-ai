@@ -83,6 +83,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       openaiModel: env.OPENAI_MODEL,
       artifactLocalPath: env.ARTIFACT_LOCAL_PATH,
       resultLimit: env.RESULT_LIMIT,
+      // Every tick must fit inside Netlify's ~10s function limit.
+      serverless: true,
     };
 
     const result = await runPipelineTick(id, pipelineEnv);

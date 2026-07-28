@@ -38,6 +38,12 @@ export type PipelineEnv = {
   openaiModel: string;
   artifactLocalPath: string;
   resultLimit: number;
+  /**
+   * Serverless platforms (Netlify) kill functions after ~10s, so every
+   * stage invocation must stay well under that: chunked searches, parallel
+   * candidate processing, and tighter network/AI timeouts.
+   */
+  serverless?: boolean;
 };
 
 function budgetOf(job: { budgetJson: unknown }): JobBudget {
@@ -144,7 +150,7 @@ export async function runResolveStage(jobId: string, env: PipelineEnv): Promise<
   });
 
   const page = await safeFetchText(sourceUrl, {
-    timeoutMs: 15_000,
+    timeoutMs: env.serverless ? 8_000 : 15_000,
     maxBytes: 2_000_000,
     maxRedirects: 5,
   });
@@ -421,21 +427,37 @@ export async function runResolveStage(jobId: string, env: PipelineEnv): Promise<
   await enqueue(env.redisUrl, 'jobs-discover', 'discover', { jobId }, `discover-${jobId}`);
 }
 
-export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise<void> {
+/**
+ * Discovery is resumable: on serverless platforms each invocation runs at
+ * most SERP_CHUNK search queries (in parallel) and persists progress, so a
+ * single invocation always fits inside the platform's ~10s execution limit.
+ * Returns 'more' while queries remain, 'done' when discovery is finalized.
+ */
+export async function runDiscoverStage(
+  jobId: string,
+  env: PipelineEnv,
+): Promise<'more' | 'done'> {
+  const SERP_CHUNK = 2;
   const job = await prisma.searchJob.findUnique({
     where: { id: jobId },
     include: { part: true },
   });
-  if (!job?.part || job.status === 'cancelled') return;
+  if (!job?.part || job.status === 'cancelled') return 'done';
 
-  await setJobStatus(jobId, 'discovering', {
-    progressJson: { stage: 'discovering', percent: 40 },
-    // MPN-direct (batch) jobs start their wall clock here, when work begins.
-    startedAt: job.startedAt ?? new Date(),
-  });
-  await appendJobEvent(jobId, 'Searching worldwide for exact MPN suppliers (best-effort)', {
-    stage: 'discovering',
-  });
+  const progress = (job.progressJson ?? {}) as Record<string, unknown>;
+  const serpDone = Number(progress.serpDone ?? 0);
+  const relaxedDone = Boolean(progress.relaxedDone);
+
+  if (job.status !== 'discovering') {
+    await setJobStatus(jobId, 'discovering', {
+      progressJson: { ...progress, stage: 'discovering', percent: 40 },
+      // MPN-direct (batch) jobs start their wall clock here, when work begins.
+      startedAt: job.startedAt ?? new Date(),
+    });
+    await appendJobEvent(jobId, 'Searching worldwide for exact MPN suppliers (best-effort)', {
+      stage: 'discovering',
+    });
+  }
 
   const budget = budgetOf(job);
   const suggestions = await suggestSuppliers({
@@ -445,7 +467,7 @@ export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise
     limit: 10,
   });
 
-  if (suggestions.length) {
+  if (suggestions.length && serpDone === 0) {
     await appendJobEvent(jobId, `Knowledge assist suggested ${suggestions.length} suppliers`, {
       stage: 'discovering',
       data: { domains: suggestions.map((s) => s.supplierDomain) },
@@ -456,47 +478,59 @@ export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise
   // Search with the human-readable part text (RC0805FR-0710KL, not RC0805FR0710KL):
   // suppliers list parts the way manufacturers write them.
   const searchTerm = job.part.originalMpn || job.part.rawMpn || job.part.normalizedMpn;
-  const queries = buildSearchQueries(searchTerm, job.part.manufacturer);
-  const limitedQueries = queries.slice(0, budget.maxSerpQueries);
+  const primaryQueries = buildSearchQueries(searchTerm, job.part.manufacturer).slice(
+    0,
+    budget.maxSerpQueries,
+  );
 
-  const hits = [];
-  for (const query of limitedQueries) {
-    try {
-      const batch = await provider.search(query, { maxResults: 8 });
-      hits.push(...batch);
-    } catch (error) {
-      // One failing query must not sink the whole search — log and continue.
-      await appendJobEvent(
-        jobId,
-        `One search query failed (${error instanceof Error ? error.message.slice(0, 80) : 'error'}) — continuing`,
-        { stage: 'discovering', level: 'warn' },
-      );
+  const chunk = env.serverless
+    ? primaryQueries.slice(serpDone, serpDone + SERP_CHUNK)
+    : primaryQueries.slice(serpDone);
+
+  const hits: Awaited<ReturnType<typeof provider.search>> = [];
+  if (chunk.length > 0) {
+    const settled = await Promise.allSettled(
+      chunk.map((query) => provider.search(query, { maxResults: 8 })),
+    );
+    for (const result of settled) {
+      if (result.status === 'fulfilled') hits.push(...result.value);
+    }
+    if (settled.every((r) => r.status === 'rejected')) {
+      await appendJobEvent(jobId, 'Search queries failed this round — will keep going', {
+        stage: 'discovering',
+        level: 'warn',
+      });
     }
   }
+  const newSerpDone = serpDone + chunk.length;
+  const primaryFinished = newSerpDone >= primaryQueries.length;
 
   // Second wave: obscure parts often miss on strict quoted queries. When the
-  // first pass is thin, broaden with unquoted and description-based searches.
-  if (hits.length < 12) {
-    const relaxed: string[] = [];
-    const manufacturer = job.part.manufacturer?.trim();
-    relaxed.push(`${searchTerm} ${manufacturer ?? ''} buy price`.trim());
-    const keywords = descriptionKeywords(job.part.title ?? job.part.descriptionClean);
-    if (keywords) {
-      relaxed.push(`${manufacturer ?? ''} ${searchTerm} ${keywords} supplier`.trim());
-    }
-    await appendJobEvent(
-      jobId,
-      'Few strict matches — expanding with broader searches (manufacturer + description keywords)',
-      { stage: 'discovering' },
-    );
-    for (const query of relaxed.slice(0, 2)) {
-      try {
-        const batch = await provider.search(query, { maxResults: 8 });
-        hits.push(...batch);
-      } catch {
-        // best-effort second wave
+  // primary pass finished thin, broaden with unquoted/description searches.
+  let markRelaxedDone = relaxedDone;
+  if (primaryFinished && !relaxedDone) {
+    const existingCandidates = await prisma.jobCandidate.count({ where: { jobId } });
+    if (existingCandidates + hits.length < 8) {
+      const relaxed: string[] = [];
+      const manufacturer = job.part.manufacturer?.trim();
+      relaxed.push(`${searchTerm} ${manufacturer ?? ''} buy price`.trim());
+      const keywords = descriptionKeywords(job.part.title ?? job.part.descriptionClean);
+      if (keywords) {
+        relaxed.push(`${manufacturer ?? ''} ${searchTerm} ${keywords} supplier`.trim());
+      }
+      await appendJobEvent(
+        jobId,
+        'Few strict matches — expanding with broader searches (manufacturer + description keywords)',
+        { stage: 'discovering' },
+      );
+      const settled = await Promise.allSettled(
+        relaxed.slice(0, 2).map((query) => provider.search(query, { maxResults: 8 })),
+      );
+      for (const result of settled) {
+        if (result.status === 'fulfilled') hits.push(...result.value);
       }
     }
+    markRelaxedDone = true;
   }
 
   const sourceHost = job.finalSourceUrl ? new URL(job.finalSourceUrl).hostname.toLowerCase() : '';
@@ -568,8 +602,39 @@ export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise
     });
   }
 
-  await appendJobEvent(jobId, `Queued ${ranked.length} candidates for extraction`, {
+  // More primary queries remain (serverless chunking): persist progress and
+  // let the next invocation continue exactly where this one stopped.
+  if (!primaryFinished) {
+    await prisma.searchJob.update({
+      where: { id: jobId },
+      data: {
+        progressJson: {
+          ...progress,
+          stage: 'discovering',
+          percent: 40 + Math.round((newSerpDone / Math.max(1, primaryQueries.length)) * 10),
+          serpDone: newSerpDone,
+        } as Prisma.InputJsonValue,
+      },
+    });
+    return 'more';
+  }
+
+  const totalCandidates = await prisma.jobCandidate.count({ where: { jobId } });
+  await appendJobEvent(jobId, `Queued ${totalCandidates} candidates for extraction`, {
     stage: 'discovering',
+  });
+  await prisma.searchJob.update({
+    where: { id: jobId },
+    data: {
+      progressJson: {
+        ...progress,
+        stage: 'discovering',
+        percent: 50,
+        serpDone: newSerpDone,
+        relaxedDone: markRelaxedDone,
+        discoverDone: true,
+      } as Prisma.InputJsonValue,
+    },
   });
 
   // Always include the original source product page as a candidate so the user
@@ -585,7 +650,7 @@ export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise
           stage: 'discovering',
         });
         await enqueue(env.redisUrl, 'jobs-extract', 'extract', { jobId }, `extract-${jobId}`);
-        return;
+        return 'done';
       }
       await prisma.jobCandidate.upsert({
         where: { jobId_url: { jobId, url: source } },
@@ -610,6 +675,7 @@ export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise
   }
 
   await enqueue(env.redisUrl, 'jobs-extract', 'extract', { jobId }, `extract-${jobId}`);
+  return 'done';
 }
 
 const DESCRIPTION_STOPWORDS = new Set([
@@ -731,6 +797,7 @@ export async function runExtractStage(
     },
   });
   if (!job?.part || job.status === 'cancelled') return;
+  const part = job.part;
 
   await setJobStatus(jobId, 'extracting', {
     progressJson: { stage: 'extracting', percent: 55 },
@@ -748,6 +815,10 @@ export async function runExtractStage(
   );
   const fetchTimeoutMs = options?.fetchTimeoutMs ?? 12_000;
 
+  // Pre-checks run sequentially (cheap DB work), then the network-heavy
+  // candidate processing runs in parallel on serverless so a 2-candidate
+  // batch fits inside the platform's ~10s execution limit.
+  const ready: typeof candidates = [];
   for (const candidate of candidates) {
     const latest = await prisma.searchJob.findUnique({
       where: { id: jobId },
@@ -776,7 +847,10 @@ export async function runExtractStage(
       where: { id: candidate.id },
       data: { status: 'extracting' },
     });
+    ready.push(candidate);
+  }
 
+  const processCandidate = async (candidate: (typeof candidates)[number]): Promise<void> => {
     try {
       const page = await safeFetchText(candidate.url, {
         timeoutMs: fetchTimeoutMs,
@@ -792,23 +866,23 @@ export async function runExtractStage(
             errorMessage: `HTTP ${page.status}`,
           },
         });
-        continue;
+        return;
       }
 
       const artifact = await storeArtifact(env.artifactLocalPath, page.body);
-      const draft = extractGenericOffer(page.body, job.part.originalMpn || job.part.rawMpn);
+      const draft = extractGenericOffer(page.body, part.originalMpn || part.rawMpn);
       const identity = extractProductIdentity(page.body, {
         pageUrl: page.finalUrl || candidate.url,
       });
       const candidateMpn = draft.mpn || identity.mpn || '';
       const exactStructured = candidateMpn
-        ? mpnsMatch(candidateMpn, job.part.normalizedMpn)
+        ? mpnsMatch(candidateMpn, part.normalizedMpn)
         : false;
       const bodyHasExactToken =
-        page.body.toUpperCase().includes(job.part.originalMpn.toUpperCase()) ||
-        normalizeMpn(page.body).includes(job.part.normalizedMpn);
+        page.body.toUpperCase().includes(part.originalMpn.toUpperCase()) ||
+        normalizeMpn(page.body).includes(part.normalizedMpn);
       const urlHasExactToken = normalizeMpn(page.finalUrl || candidate.url).includes(
-        job.part.normalizedMpn,
+        part.normalizedMpn,
       );
       const commerceSignals = lowerIncludesAny(page.body, [
         'add to cart',
@@ -833,19 +907,19 @@ export async function runExtractStage(
           'alternative to',
         ]) &&
         titlesCompatible(
-          job.part.title,
+          part.title,
           draft.description ?? identity.title,
-          job.part.originalMpn,
+          part.originalMpn,
         );
       // Name-identifier accept: when the part was identified by product name
       // (no published MPN), require every significant name token plus commerce signals.
-      const identifierIsName = /\s/.test((job.part.originalMpn || '').trim());
+      const identifierIsName = /\s/.test((part.originalMpn || '').trim());
       const exactName =
         !exactStructured &&
         !exactCommerce &&
         identifierIsName &&
         commerceSignals &&
-        nameTokensMatch(job.part.originalMpn, page.body) &&
+        nameTokensMatch(part.originalMpn, page.body) &&
         !lowerIncludesAny(page.body, [
           'compatible with',
           'replacement for',
@@ -863,11 +937,12 @@ export async function runExtractStage(
           const verdict = await verifyVendorOffer({
             apiKey: env.openaiApiKey,
             model: env.openaiModel,
-            mpn: job.part.originalMpn,
-            manufacturer: job.part.manufacturer ?? job.part.brand,
-            partDescription: job.part.title ?? job.part.descriptionClean,
+            mpn: part.originalMpn,
+            manufacturer: part.manufacturer ?? part.brand,
+            partDescription: part.title ?? part.descriptionClean,
             pageUrl: page.finalUrl || candidate.url,
             pageExcerpt: visibleTextExcerpt(page.body, 6000),
+            timeoutMs: env.serverless ? 5_000 : 15_000,
           });
           if (verdict) {
             if (!verdict.sellsExactPart && verdict.confidence >= 0.6) {
@@ -879,7 +954,7 @@ export async function runExtractStage(
                   errorMessage: (verdict.reason ?? 'AI verification: not the exact part').slice(0, 200),
                 },
               });
-              continue;
+              return;
             }
             if (verdict.sellsExactPart) {
               matchConfidence = Math.min(0.95, Math.max(matchConfidence, verdict.confidence));
@@ -921,7 +996,7 @@ export async function runExtractStage(
             errorMessage: reason,
           },
         });
-        continue;
+        return;
       }
 
       // Extra guard: reject substitute/accessory language even when MPN string matches.
@@ -943,12 +1018,12 @@ export async function runExtractStage(
             errorMessage: 'substitute',
           },
         });
-        continue;
+        return;
       }
 
       if (
         !manufacturersCompatible(
-          job.part.manufacturer ?? job.part.brand,
+          part.manufacturer ?? part.brand,
           offerManufacturer,
         )
       ) {
@@ -960,7 +1035,7 @@ export async function runExtractStage(
             errorMessage: 'manufacturer_mismatch',
           },
         });
-        continue;
+        return;
       }
 
       const known = KNOWN_DISTRIBUTORS[candidate.domain];
@@ -992,7 +1067,7 @@ export async function runExtractStage(
         create: {
           jobId,
           supplierId: supplier.id,
-          mpn: candidateMpn || job.part.originalMpn,
+          mpn: candidateMpn || part.originalMpn,
           manufacturer: offerManufacturer,
           supplierPartNumber: identity.supplierSku ?? draft.mpn ?? null,
           productUrl: page.finalUrl || candidate.url,
@@ -1034,14 +1109,14 @@ export async function runExtractStage(
 
       // Batch (MPN-direct) parts have no source page — adopt the product photo
       // from the first verified vendor listing.
-      if (!job.part.imageUrl) {
+      if (!part.imageUrl) {
         const vendorImage = extractProductImage(page.body, page.finalUrl || candidate.url);
         if (vendorImage) {
           await prisma.part.update({
-            where: { id: job.part.id },
+            where: { id: part.id },
             data: { imageUrl: vendorImage },
           });
-          job.part.imageUrl = vendorImage;
+          part.imageUrl = vendorImage;
         }
       }
     } catch (error) {
@@ -1053,6 +1128,15 @@ export async function runExtractStage(
           errorMessage: error instanceof Error ? error.message : 'extract failed',
         },
       });
+    }
+  };
+
+  if (env.serverless) {
+    // Parallel: a 2-candidate batch completes in one platform time slot.
+    await Promise.all(ready.map((candidate) => processCandidate(candidate)));
+  } else {
+    for (const candidate of ready) {
+      await processCandidate(candidate);
     }
   }
 
@@ -1357,6 +1441,7 @@ export async function runEnrichStage(jobId: string, env: PipelineEnv): Promise<v
           description: o.description,
           productUrl: o.productUrl,
         })),
+        timeoutMs: env.serverless ? 7_000 : 20_000,
       });
       summary = result.summary;
       if (job.part && (result.cleanedDescription || result.productName)) {
@@ -1393,6 +1478,7 @@ export async function runEnrichStage(jobId: string, env: PipelineEnv): Promise<v
             manufacturer: job.part.manufacturer,
             description: result.cleanedDescription ?? job.part.title,
             imageUrl: job.part.imageUrl,
+            timeoutMs: env.serverless ? 6_000 : 20_000,
           });
           if (verdict && !verdict.matches && verdict.confidence >= 0.6) {
             await prisma.part.update({
@@ -1466,7 +1552,7 @@ const TERMINAL_STATUSES = new Set(['completed', 'completed_with_errors', 'failed
 
 /** How many candidates one tick may extract (keeps serverless invocations short). */
 const TICK_CANDIDATE_BATCH = 2;
-const TICK_FETCH_TIMEOUT_MS = 8_000;
+const TICK_FETCH_TIMEOUT_MS = 6_000;
 
 /**
  * Advance a job by one small step. Used in serverless (inline) deployments
@@ -1505,15 +1591,17 @@ export async function runPipelineTick(
       return { state: 'running', stage: 'discover' };
     }
 
-    const [pending, total] = await Promise.all([
-      prisma.jobCandidate.count({ where: { jobId, status: { in: ['pending', 'extracting'] } } }),
-      prisma.jobCandidate.count({ where: { jobId } }),
-    ]);
+    const progress = (job.progressJson ?? {}) as Record<string, unknown>;
 
-    if (job.status === 'discovering' && total === 0) {
-      await runDiscoverStage(jobId, env);
-      return { state: 'running', stage: 'discover' };
+    // Discovery runs in bounded chunks; keep invoking until it reports done.
+    if (job.status === 'discovering' && !progress.discoverDone) {
+      const state = await runDiscoverStage(jobId, env);
+      return { state: 'running', stage: state === 'more' ? 'discover' : 'extract' };
     }
+
+    const pending = await prisma.jobCandidate.count({
+      where: { jobId, status: { in: ['pending', 'extracting'] } },
+    });
 
     if ((job.status === 'discovering' || job.status === 'extracting') && pending > 0) {
       await runExtractStage(jobId, env, {
@@ -1524,11 +1612,18 @@ export async function runPipelineTick(
         where: { jobId, status: 'pending' },
       });
       if (stillPending > 0) return { state: 'running', stage: 'extract' };
+      // Candidates finished: normalize on the next tick.
+      await runNormalizeStage(jobId, env);
+      return { state: 'running', stage: 'normalize' };
     }
 
-    // All candidates processed (or none): finish the job in one go —
-    // normalize, enrich, and knowledge are quick DB/API operations.
-    await runNormalizeStage(jobId, env);
+    if (job.status === 'discovering' || job.status === 'extracting') {
+      // No candidates at all — normalize/finish honestly.
+      await runNormalizeStage(jobId, env);
+      return { state: 'running', stage: 'normalize' };
+    }
+
+    // status 'normalizing' (or an interrupted 'enriching'): final ranking + audit.
     await runEnrichStage(jobId, env);
     await runKnowledgeStage(jobId);
     const finished = await prisma.searchJob.findUnique({
