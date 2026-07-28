@@ -67,6 +67,144 @@ type JobEvent = {
 
 const TERMINAL = new Set(['completed', 'completed_with_errors', 'failed', 'cancelled']);
 
+const PIPELINE_STEPS = [
+  { key: 'read', label: 'Read page', statuses: ['queued', 'validating', 'fetching_source'] },
+  { key: 'identify', label: 'Identify part', statuses: ['extracting_identity', 'identifying_mpn'] },
+  { key: 'discover', label: 'Find suppliers', statuses: ['discovering'] },
+  { key: 'extract', label: 'Extract offers', statuses: ['extracting', 'normalizing'] },
+  { key: 'finish', label: 'Rank & finish', statuses: ['enriching'] },
+] as const;
+
+function DexLogo({ size = 34 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden className="shrink-0">
+      <defs>
+        <linearGradient id="dexlg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#1d5bd8" />
+          <stop offset="1" stopColor="#0a1f33" />
+        </linearGradient>
+      </defs>
+      <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#dexlg)" />
+      <path
+        d="M20 18h12c8.8 0 15 6 15 14s-6.2 14-15 14H20V18zm7 6.5v15h5c4.9 0 8-3 8-7.5s-3.1-7.5-8-7.5h-5z"
+        fill="#fff"
+      />
+      <circle cx="47" cy="19" r="4" fill="#43c384" />
+    </svg>
+  );
+}
+
+function Spinner({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.25" />
+      <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const label = status.replaceAll('_', ' ');
+  const style =
+    status === 'completed'
+      ? 'bg-dex-ok-soft text-dex-ok border-transparent'
+      : status === 'completed_with_errors'
+        ? 'bg-dex-warn-soft text-dex-warn border-transparent'
+        : status === 'failed' || status === 'cancelled'
+          ? 'bg-dex-danger-soft text-dex-danger border-transparent'
+          : 'bg-dex-accent-soft text-dex-accent border-transparent';
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold tracking-wide uppercase ${style}`}
+    >
+      {!TERMINAL.has(status) ? <span className="dex-pulse-dot h-1.5 w-1.5 rounded-full bg-current" /> : null}
+      {label}
+    </span>
+  );
+}
+
+function MatchBadge({ value }: { value: number }) {
+  const pct = Math.round(value * 100);
+  const style =
+    value >= 0.8
+      ? 'bg-dex-ok-soft text-dex-ok'
+      : value >= 0.6
+        ? 'bg-dex-warn-soft text-dex-warn'
+        : 'bg-dex-bg text-dex-muted';
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${style}`}>
+      {pct}%
+    </span>
+  );
+}
+
+function stepState(status: string): { index: number; done: boolean } {
+  if (status === 'completed' || status === 'completed_with_errors') {
+    return { index: PIPELINE_STEPS.length - 1, done: true };
+  }
+  const idx = PIPELINE_STEPS.findIndex((step) => (step.statuses as readonly string[]).includes(status));
+  return { index: idx === -1 ? 0 : idx, done: false };
+}
+
+function StageStepper({ status }: { status: string }) {
+  const { index: active, done } = stepState(status);
+  const failed = status === 'failed' || status === 'cancelled';
+  return (
+    <ol className="mt-5 flex items-center gap-1">
+      {PIPELINE_STEPS.map((step, i) => {
+        const complete = done || i < active;
+        const current = !done && i === active && !failed;
+        return (
+          <li key={step.key} className="flex flex-1 flex-col gap-1.5">
+            <span
+              className={`h-1.5 w-full rounded-full transition-colors duration-500 ${
+                complete
+                  ? 'bg-dex-ok'
+                  : current
+                    ? 'dex-progress-active bg-dex-accent'
+                    : failed && i === active
+                      ? 'bg-dex-danger'
+                      : 'bg-dex-border'
+              }`}
+            />
+            <span
+              className={`hidden text-[11px] font-medium sm:block ${
+                complete || current ? 'text-dex-fg' : 'text-dex-muted'
+              }`}
+            >
+              {step.label}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-xl border border-dex-border bg-dex-bg-elevated p-4 shadow-card">
+      <p className="text-xs font-medium tracking-wide text-dex-muted uppercase">{label}</p>
+      <p className="font-display mt-1.5 text-2xl font-semibold text-dex-brand">{value}</p>
+      {hint ? <p className="mt-0.5 text-xs text-dex-muted">{hint}</p> : null}
+    </div>
+  );
+}
+
+function fmtUsd(value: string | null): string | null {
+  if (value == null) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return value;
+  return num.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+
 export function Dashboard() {
   const [url, setUrl] = useState('');
   const [forceRefresh, setForceRefresh] = useState(false);
@@ -141,7 +279,7 @@ export function Dashboard() {
       try {
         data = (await res.json()) as typeof data;
       } catch {
-        setError(`Sign-in failed (HTTP ${res.status}). Check Render logs for dex-web.`);
+        setError(`Sign-in failed (HTTP ${res.status}).`);
         return;
       }
       if (!res.ok) {
@@ -158,11 +296,8 @@ export function Dashboard() {
       if (typeof link === 'string') {
         setDevVerifyUrl(link);
       }
-      if (data.message && !link) {
-        setError(null);
-      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send verification email');
+      setError(err instanceof Error ? err.message : 'Sign-in failed');
     } finally {
       setSendingLink(false);
     }
@@ -253,386 +388,563 @@ export function Dashboard() {
     };
   }, [job?.id, job?.status, query]);
 
-  const progressLabel = useMemo(() => {
-    if (!job) return 'Idle';
-    return job.status.replaceAll('_', ' ');
-  }, [job]);
-
   const identifiedMpn = job?.part?.originalMpn || job?.part?.rawMpn || job?.summaryJson?.mpn;
   const identifiedMfr = job?.part?.manufacturer || job?.summaryJson?.manufacturer;
   const isRunning = Boolean(job && !TERMINAL.has(job.status));
 
+  const stats = useMemo(() => {
+    const priced = offers
+      .map((offer) => Number(offer.priceUsd))
+      .filter((num) => Number.isFinite(num) && num > 0)
+      .sort((a, b) => a - b);
+    const countries = new Set(
+      offers.map((offer) => offer.supplier.country).filter((c): c is string => Boolean(c)),
+    );
+    const suppliers = new Set(offers.map((offer) => offer.supplier.domain));
+    return {
+      offerCount: offers.length,
+      lowestUsd: priced.length
+        ? priced[0]!.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+        : '—',
+      supplierCount: suppliers.size,
+      countryCount: countries.size,
+    };
+  }, [offers]);
+
+  const bestPriceOfferId = useMemo(() => {
+    let best: { id: string; usd: number } | null = null;
+    for (const offer of offers) {
+      const usd = Number(offer.priceUsd);
+      if (Number.isFinite(usd) && usd > 0 && (!best || usd < best.usd)) {
+        best = { id: offer.id, usd };
+      }
+    }
+    return best?.id ?? null;
+  }, [offers]);
+
   if (authChecking) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-4">
-        <p className="text-dex-muted">Loading…</p>
+      <main className="flex min-h-screen items-center justify-center">
+        <div className="flex items-center gap-3 text-dex-muted">
+          <Spinner />
+          <span>Loading DEX Sourcing…</span>
+        </div>
       </main>
     );
   }
 
+  /* ---------------------------- Sign-in screen ---------------------------- */
   if (authRequired && !authed) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center px-4">
-        <p className="font-display text-sm tracking-[0.22em] text-dex-muted uppercase">DEX</p>
-        <h1 className="font-display mt-2 text-3xl font-semibold text-dex-brand">
-          Global Sourcing Assistant
-        </h1>
-        <p className="mt-3 text-sm text-dex-muted">
-          Allowed: any <span className="font-medium text-dex-fg">@dex.com</span> email, plus{' '}
-          <span className="font-medium text-dex-fg">lmfelcher@gmail.com</span>.
-        </p>
+      <main className="flex min-h-screen items-center justify-center px-4 py-10">
+        <div className="dex-fade-up w-full max-w-md">
+          <div className="rounded-2xl border border-dex-border bg-dex-bg-elevated p-8 shadow-card-lg">
+            <div className="flex items-center gap-3">
+              <DexLogo size={44} />
+              <div>
+                <p className="font-display text-xs font-semibold tracking-[0.28em] text-dex-muted uppercase">
+                  DEX
+                </p>
+                <h1 className="font-display text-xl font-semibold text-dex-brand">
+                  Global Sourcing Assistant
+                </h1>
+              </div>
+            </div>
 
-        {verificationSent ? (
-          <div className="mt-6 rounded-xl border border-dex-border bg-dex-bg-elevated/90 p-4">
-            <p className="font-medium text-dex-fg">
-              {devVerifyUrl ? 'Open your sign-in link' : 'Check your email'}
+            <p className="mt-5 text-sm leading-relaxed text-dex-muted">
+              Identify any part from a product link and compare vetted suppliers worldwide —
+              prices, stock, and lead times in one view.
             </p>
-            <p className="mt-2 text-sm text-dex-muted">
-              {devVerifyUrl
-                ? 'Email delivery may have failed — click the link below to finish signing in.'
-                : `If ${emailInput || 'that address'} is allowed, a sign-in link is on the way.`}
-            </p>
-            {devVerifyUrl ? (
-              <p className="mt-3 break-all text-sm">
-                <a className="text-dex-accent underline" href={devVerifyUrl}>
-                  Click here to sign in
-                </a>
+
+            {verificationSent ? (
+              <div className="mt-6 rounded-xl border border-dex-border bg-dex-bg p-4">
+                <p className="font-medium text-dex-fg">
+                  {devVerifyUrl ? 'Open your sign-in link' : 'Check your email'}
+                </p>
+                <p className="mt-1.5 text-sm text-dex-muted">
+                  {devVerifyUrl
+                    ? 'Click the link below to finish signing in.'
+                    : `If ${emailInput || 'that address'} is allowed, a sign-in link is on the way.`}
+                </p>
+                {devVerifyUrl ? (
+                  <a
+                    className="mt-3 inline-block rounded-lg bg-dex-accent px-4 py-2 text-sm font-medium text-white transition hover:brightness-110"
+                    href={devVerifyUrl}
+                  >
+                    Continue to DEX Sourcing
+                  </a>
+                ) : null}
+                <button
+                  type="button"
+                  className="mt-3 block text-sm text-dex-accent hover:underline"
+                  onClick={() => {
+                    setVerificationSent(false);
+                    setDevVerifyUrl(null);
+                    setError(null);
+                  }}
+                >
+                  Use a different email
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={(e) => void signIn(e)} className="mt-6 space-y-4">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium" htmlFor="work-email">
+                    Work email
+                  </label>
+                  <input
+                    id="work-email"
+                    type="email"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    className="w-full rounded-lg border border-dex-border bg-transparent px-3.5 py-2.5 text-dex-fg outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25"
+                    placeholder="you@dex.com"
+                    required
+                    autoComplete="email"
+                    autoFocus
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={sendingLink}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-dex-accent px-5 py-2.5 font-medium text-white shadow-card transition hover:brightness-110 disabled:opacity-60"
+                >
+                  {sendingLink ? <Spinner /> : null}
+                  {sendingLink ? 'Signing in…' : 'Sign in'}
+                </button>
+              </form>
+            )}
+
+            {error ? (
+              <p className="mt-4 rounded-lg bg-dex-danger-soft px-3 py-2 text-sm text-dex-danger">
+                {error}
               </p>
             ) : null}
-            <button
-              type="button"
-              className="mt-4 text-sm text-dex-accent underline"
-              onClick={() => {
-                setVerificationSent(false);
-                setDevVerifyUrl(null);
-                setError(null);
-              }}
-            >
-              Use a different email
-            </button>
+
+            <p className="mt-6 border-t border-dex-border pt-4 text-xs text-dex-muted">
+              Access is limited to DEX team accounts.
+            </p>
           </div>
-        ) : (
-          <form onSubmit={(e) => void signIn(e)} className="mt-6 space-y-3">
-            <label className="block text-sm font-medium" htmlFor="work-email">
-              Email
-            </label>
-            <input
-              id="work-email"
-              type="email"
-              value={emailInput}
-              onChange={(e) => setEmailInput(e.target.value)}
-              className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
-              placeholder="you@dex.com"
-              required
-              autoComplete="email"
-            />
-            <button
-              type="submit"
-              disabled={sendingLink}
-              className="rounded-lg bg-dex-accent px-5 py-2.5 font-medium text-white disabled:opacity-50"
-            >
-              {sendingLink ? 'Signing in…' : 'Sign in'}
-            </button>
-          </form>
-        )}
-        {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+          <p className="mt-4 text-center text-xs text-dex-muted">
+            DEX Global Sourcing · procurement intelligence
+          </p>
+        </div>
       </main>
     );
   }
 
+  /* ------------------------------- Dashboard ------------------------------ */
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-8 md:px-8">
-      <header className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-dex-border pb-6">
-        <div>
-          <p className="font-display text-sm tracking-[0.22em] text-dex-muted uppercase">DEX</p>
-          <h1 className="font-display mt-2 text-4xl font-semibold tracking-tight text-dex-brand md:text-5xl">
-            Global Sourcing Assistant
-          </h1>
-          <p className="mt-3 max-w-2xl text-dex-muted">
-            Paste a product-page link. We identify the manufacturer part number and run best-effort
-            worldwide supplier discovery — about 10 useful options when available.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {signedInEmail ? (
-            <div className="text-right text-sm">
-              <p className="text-dex-muted">Signed in</p>
-              <p className="font-medium text-dex-fg">{signedInEmail}</p>
+    <div className="flex min-h-screen flex-col">
+      <header className="sticky top-0 z-20 border-b border-dex-border bg-dex-bg-elevated/85 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 md:px-8">
+          <div className="flex items-center gap-3">
+            <DexLogo />
+            <div className="leading-tight">
+              <p className="font-display text-[11px] font-semibold tracking-[0.28em] text-dex-muted uppercase">
+                DEX
+              </p>
+              <p className="font-display text-sm font-semibold text-dex-brand">
+                Global Sourcing Assistant
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5">
+            {signedInEmail ? (
+              <div className="hidden items-center gap-2 rounded-full border border-dex-border bg-dex-bg px-3 py-1.5 sm:flex">
+                <span className="h-2 w-2 rounded-full bg-dex-ok" />
+                <span className="max-w-[220px] truncate text-xs font-medium text-dex-fg">
+                  {signedInEmail}
+                </span>
+              </div>
+            ) : null}
+            <ThemeToggle />
+            {signedInEmail ? (
               <button
                 type="button"
                 onClick={() => void signOut()}
-                className="mt-1 text-dex-accent underline"
+                className="rounded-lg border border-dex-border px-3 py-1.5 text-sm font-medium text-dex-muted transition hover:text-dex-fg"
               >
                 Sign out
               </button>
-            </div>
-          ) : null}
-          <ThemeToggle />
+            ) : null}
+          </div>
         </div>
       </header>
 
-      <form
-        onSubmit={startSearch}
-        className="mb-6 rounded-xl border border-dex-border bg-dex-bg-elevated/90 p-4 shadow-sm backdrop-blur md:p-5"
-      >
-        <label className="mb-2 block text-sm font-medium text-dex-fg" htmlFor="product-url">
-          Product page URL
-        </label>
-        <div className="flex flex-col gap-3 md:flex-row">
-          <input
-            id="product-url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://www.sparkfun.com/products/127"
-            className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5 text-dex-fg outline-none ring-dex-accent focus:ring-2"
-            required
-            type="url"
-            autoComplete="url"
-            spellCheck={false}
-          />
-          <button
-            type="submit"
-            disabled={submitting || !url.trim() || isRunning}
-            className="rounded-lg bg-dex-accent px-5 py-2.5 font-medium text-white transition hover:brightness-110 disabled:opacity-50"
-          >
-            {submitting ? 'Starting…' : isRunning ? 'Working…' : 'Find Suppliers'}
-          </button>
-          {isRunning ? (
-            <button
-              type="button"
-              onClick={() => void cancelJob()}
-              disabled={cancelling}
-              className="rounded-lg border border-dex-border px-4 py-2.5 text-sm font-medium text-dex-fg transition hover:bg-dex-bg disabled:opacity-50"
-            >
-              {cancelling ? 'Cancelling…' : 'Cancel'}
-            </button>
-          ) : null}
-        </div>
-        <p className="mt-2 text-xs text-dex-muted">
-          Works best on public product pages that show a manufacturer part number (MPN). Bot-walled
-          distributor pages may need a different source URL.
-        </p>
-        <label className="mt-3 flex items-center gap-2 text-sm text-dex-muted">
-          <input
-            type="checkbox"
-            checked={forceRefresh}
-            onChange={(e) => setForceRefresh(e.target.checked)}
-          />
-          Force refresh (ignore MPN cache)
-        </label>
-        {error ? <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p> : null}
-      </form>
-
-      {job ? (
-        <section className="mb-6 grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-xl border border-dex-border bg-dex-bg-elevated/90 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-medium">Progress</h2>
-              <span className="rounded-full border border-dex-border px-3 py-1 text-xs uppercase tracking-wide text-dex-muted">
-                {progressLabel}
-              </span>
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 md:px-8">
+        {/* Hero + search */}
+        <section className="dex-fade-up">
+          {!job ? (
+            <div className="mb-6 max-w-3xl">
+              <h1 className="font-display text-3xl font-semibold tracking-tight text-dex-brand md:text-[2.6rem] md:leading-[1.15]">
+                Source any part, worldwide,
+                <br className="hidden md:block" /> from a single link.
+              </h1>
+              <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-dex-muted">
+                Paste a product page. DEX pinpoints the exact manufacturer part number, then
+                searches global distributors and ranks the best supplier options — with prices,
+                stock, and lead times.
+              </p>
             </div>
+          ) : null}
 
-            {(identifiedMpn || identifiedMfr) && job.resolveStatus === 'identified' ? (
-              <div className="mt-4 rounded-lg border border-dex-border/80 bg-dex-bg/40 p-3">
-                <p className="text-xs uppercase tracking-wide text-dex-muted">Identified part</p>
-                <p className="mt-1 text-xl font-semibold text-dex-brand">
-                  {identifiedMfr ? `${identifiedMfr} · ` : ''}
-                  {identifiedMpn}
-                </p>
-                <p className="mt-1 text-sm text-dex-muted">
-                  Confidence{' '}
-                  {typeof job.identificationConfidence === 'number'
-                    ? job.identificationConfidence.toFixed(2)
-                    : '—'}
-                  {job.finalSourceUrl || job.rawSourceUrl ? (
-                    <>
-                      {' '}
-                      ·{' '}
-                      <a
-                        className="text-dex-accent underline"
-                        href={job.finalSourceUrl || job.rawSourceUrl || undefined}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Original source
-                      </a>
-                    </>
-                  ) : null}
-                </p>
-              </div>
-            ) : isRunning ? (
-              <p className="mt-4 text-sm text-dex-muted">
-                Reading the product page and identifying the manufacturer part number…
+          <form
+            onSubmit={startSearch}
+            className="rounded-2xl border border-dex-border bg-dex-bg-elevated p-5 shadow-card md:p-6"
+          >
+            <label className="mb-2 block text-sm font-semibold text-dex-fg" htmlFor="product-url">
+              Product page URL
+            </label>
+            <div className="flex flex-col gap-3 md:flex-row">
+              <input
+                id="product-url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://www.sparkfun.com/products/127"
+                className="w-full rounded-xl border border-dex-border bg-transparent px-4 py-3 text-[15px] text-dex-fg outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25"
+                required
+                type="url"
+                autoComplete="url"
+                spellCheck={false}
+              />
+              <button
+                type="submit"
+                disabled={submitting || !url.trim() || isRunning}
+                className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-dex-accent px-6 py-3 font-semibold text-white shadow-card transition hover:brightness-110 disabled:opacity-50"
+              >
+                {submitting || isRunning ? <Spinner /> : (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m20 20-3.5-3.5" />
+                  </svg>
+                )}
+                {submitting ? 'Starting…' : isRunning ? 'Working…' : 'Find suppliers'}
+              </button>
+              {isRunning ? (
+                <button
+                  type="button"
+                  onClick={() => void cancelJob()}
+                  disabled={cancelling}
+                  className="rounded-xl border border-dex-border px-4 py-3 text-sm font-medium text-dex-fg transition hover:bg-dex-bg disabled:opacity-50"
+                >
+                  {cancelling ? 'Cancelling…' : 'Cancel'}
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-3 flex flex-col gap-2 text-xs text-dex-muted md:flex-row md:items-center md:justify-between">
+              <p>
+                Works best on public product pages showing a manufacturer part number (MPN).
+              </p>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={forceRefresh}
+                  onChange={(e) => setForceRefresh(e.target.checked)}
+                  className="accent-[var(--dex-accent)]"
+                />
+                Force refresh (skip cache)
+              </label>
+            </div>
+            {error ? (
+              <p className="mt-3 rounded-lg bg-dex-danger-soft px-3 py-2 text-sm text-dex-danger">
+                {error}
               </p>
             ) : null}
+          </form>
+        </section>
 
-            {job.summaryJson?.summary ? (
-              <p className="mt-3 text-sm text-dex-fg">{job.summaryJson.summary}</p>
-            ) : null}
-            {job.errorMessage ? (
-              <p className="mt-3 text-sm text-red-600 dark:text-red-400">{job.errorMessage}</p>
-            ) : null}
+        {/* Progress */}
+        {job ? (
+          <section className="dex-fade-up mt-6 grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
+            <div className="rounded-2xl border border-dex-border bg-dex-bg-elevated p-5 shadow-card">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-display text-lg font-semibold text-dex-brand">Pipeline</h2>
+                <StatusBadge status={job.status} />
+              </div>
 
-            <div className="mt-4 h-2 overflow-hidden rounded bg-dex-border/60">
-              <div
-                className="h-full bg-dex-accent transition-all duration-500"
-                style={{ width: `${statusPercent(job.status)}%` }}
+              <StageStepper status={job.status} />
+
+              {(identifiedMpn || identifiedMfr) && job.resolveStatus === 'identified' ? (
+                <div className="mt-5 rounded-xl border border-dex-border bg-dex-bg p-4">
+                  <p className="text-[11px] font-semibold tracking-wide text-dex-muted uppercase">
+                    Identified part
+                  </p>
+                  <p className="font-display mt-1 text-2xl font-semibold text-dex-brand">
+                    {identifiedMfr ? `${identifiedMfr} · ` : ''}
+                    {identifiedMpn}
+                  </p>
+                  <p className="mt-1.5 text-sm text-dex-muted">
+                    Confidence{' '}
+                    <span className="font-medium text-dex-fg">
+                      {typeof job.identificationConfidence === 'number'
+                        ? `${Math.round(job.identificationConfidence * 100)}%`
+                        : '—'}
+                    </span>
+                    {job.finalSourceUrl || job.rawSourceUrl ? (
+                      <>
+                        {' · '}
+                        <a
+                          className="text-dex-accent hover:underline"
+                          href={job.finalSourceUrl || job.rawSourceUrl || undefined}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          View source page ↗
+                        </a>
+                      </>
+                    ) : null}
+                  </p>
+                </div>
+              ) : isRunning ? (
+                <p className="mt-5 flex items-center gap-2 text-sm text-dex-muted">
+                  <Spinner className="text-dex-accent" />
+                  Reading the product page and identifying the exact part number…
+                </p>
+              ) : null}
+
+              {job.summaryJson?.summary ? (
+                <p className="mt-4 text-sm leading-relaxed text-dex-fg">{job.summaryJson.summary}</p>
+              ) : null}
+              {job.errorMessage ? (
+                <p className="mt-4 rounded-lg bg-dex-danger-soft px-3 py-2 text-sm text-dex-danger">
+                  {job.errorMessage}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="rounded-2xl border border-dex-border bg-dex-bg-elevated p-5 shadow-card">
+              <h3 className="font-display mb-3 text-sm font-semibold text-dex-brand">
+                Activity log
+              </h3>
+              <ul className="dex-scroll max-h-52 space-y-2.5 overflow-auto pr-1 text-sm">
+                {events.map((event) => (
+                  <li key={event.id} className="flex gap-2.5">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-dex-accent/70" />
+                    <div className="min-w-0">
+                      <p className="text-dex-fg">{event.message}</p>
+                      <p className="text-[11px] text-dex-muted">
+                        {new Date(event.createdAt).toLocaleTimeString()}
+                        {event.stage ? ` · ${event.stage}` : ''}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+                {events.length === 0 ? (
+                  <li className="flex items-center gap-2 text-dex-muted">
+                    <Spinner />
+                    Waiting for worker events…
+                  </li>
+                ) : null}
+              </ul>
+            </div>
+          </section>
+        ) : null}
+
+        {/* Stats */}
+        {job && offers.length > 0 ? (
+          <section className="dex-fade-up mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <StatCard label="Supplier offers" value={String(stats.offerCount)} />
+            <StatCard label="Lowest price" value={stats.lowestUsd} hint="USD, best-effort" />
+            <StatCard label="Suppliers" value={String(stats.supplierCount)} />
+            <StatCard label="Countries" value={String(stats.countryCount)} />
+          </section>
+        ) : null}
+
+        {/* Results */}
+        <section className="dex-fade-up mt-6 rounded-2xl border border-dex-border bg-dex-bg-elevated shadow-card">
+          <div className="flex flex-col gap-3 border-b border-dex-border p-5 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="font-display text-lg font-semibold text-dex-brand">
+                Supplier results
+              </h2>
+              <p className="mt-0.5 text-sm text-dex-muted">
+                Sorted by USD price, best match first
+                {job?.status === 'completed_with_errors' ? ' · some sources failed (best-effort)' : ''}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Filter results…"
+                className="rounded-lg border border-dex-border bg-transparent px-3 py-2 text-sm outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25"
+                aria-label="Filter supplier results"
               />
+              {job && TERMINAL.has(job.status) && offers.length > 0 ? (
+                <>
+                  <a
+                    className="rounded-lg border border-dex-border px-3.5 py-2 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
+                    href={`/api/searches/${job.id}/export?format=csv`}
+                  >
+                    ↓ CSV
+                  </a>
+                  <a
+                    className="rounded-lg border border-dex-border px-3.5 py-2 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
+                    href={`/api/searches/${job.id}/export?format=xlsx`}
+                  >
+                    ↓ Excel
+                  </a>
+                </>
+              ) : null}
             </div>
           </div>
 
-          <div className="max-h-56 overflow-auto rounded-xl border border-dex-border bg-dex-bg-elevated/90 p-4">
-            <h3 className="mb-2 text-sm font-medium text-dex-muted">Live events</h3>
-            <ul className="space-y-2 text-sm">
-              {events.map((event) => (
-                <li key={event.id} className="border-b border-dex-border/50 pb-2 last:border-0">
-                  <span className="text-dex-muted">
-                    {new Date(event.createdAt).toLocaleTimeString()} · {event.stage ?? '—'}
-                  </span>
-                  <div>{event.message}</div>
-                </li>
-              ))}
-              {events.length === 0 ? (
-                <li className="text-dex-muted">Waiting for worker events…</li>
-              ) : null}
-            </ul>
+          <div className="dex-scroll overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead>
+                <tr className="text-[11px] font-semibold tracking-wide text-dex-muted uppercase">
+                  <th className="px-5 py-3">Supplier</th>
+                  <th className="px-4 py-3">Part</th>
+                  <th className="px-4 py-3">Price</th>
+                  <th className="px-4 py-3">Stock / MOQ</th>
+                  <th className="px-4 py-3">Lead time</th>
+                  <th className="px-4 py-3">Match</th>
+                  <th className="px-4 py-3">Notes</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {offers.map((offer) => {
+                  const usd = fmtUsd(offer.priceUsd);
+                  const isBest = offer.id === bestPriceOfferId;
+                  return (
+                    <tr
+                      key={offer.id}
+                      className="border-t border-dex-border/70 align-top transition-colors hover:bg-dex-bg/60"
+                    >
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <img
+                            src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(offer.supplier.domain)}&sz=32`}
+                            alt=""
+                            width={18}
+                            height={18}
+                            className="rounded"
+                            loading="lazy"
+                          />
+                          <div className="min-w-0">
+                            <p className="font-medium text-dex-fg">
+                              {offer.supplier.name ?? offer.supplier.domain}
+                            </p>
+                            <p className="text-xs text-dex-muted">
+                              {offer.supplier.country ?? offer.supplier.domain}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <p className="font-medium text-dex-fg">{offer.mpn}</p>
+                        <p className="text-xs text-dex-muted">
+                          {offer.manufacturer ?? '—'}
+                          {offer.supplierPartNumber ? ` · SKU ${offer.supplierPartNumber}` : ''}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        {usd ? (
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-dex-fg">{usd}</span>
+                            {isBest ? (
+                              <span className="rounded-full bg-dex-ok-soft px-2 py-0.5 text-[10px] font-bold tracking-wide text-dex-ok uppercase">
+                                Best
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-dex-muted">On request</span>
+                        )}
+                        {offer.price && offer.currency && offer.currency !== 'USD' ? (
+                          <p className="text-xs text-dex-muted">
+                            {offer.price} {offer.currency}
+                          </p>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <p className="text-dex-fg">
+                          {offer.stockQuantity != null
+                            ? offer.stockQuantity.toLocaleString()
+                            : (offer.availability ?? '—')}
+                        </p>
+                        <p className="text-xs text-dex-muted">
+                          MOQ {offer.moq != null ? offer.moq.toLocaleString() : '—'}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3.5 text-dex-fg">{offer.leadTime ?? '—'}</td>
+                      <td className="px-4 py-3.5">
+                        <MatchBadge value={offer.matchConfidence} />
+                      </td>
+                      <td className="max-w-[180px] px-4 py-3.5">
+                        {offer.riskFlags?.length ? (
+                          <div className="flex flex-wrap gap-1">
+                            {offer.riskFlags.map((flag) => (
+                              <span
+                                key={flag}
+                                className="rounded-full bg-dex-warn-soft px-2 py-0.5 text-[11px] font-medium text-dex-warn"
+                              >
+                                {flag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-dex-muted">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <a
+                          className="inline-flex items-center gap-1 rounded-lg border border-dex-border px-3 py-1.5 text-xs font-semibold text-dex-accent transition hover:bg-dex-accent-soft"
+                          href={offer.productUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          View ↗
+                        </a>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {offers.length === 0 ? (
+                  <tr className="border-t border-dex-border/70">
+                    <td className="px-5 py-14 text-center" colSpan={8}>
+                      {!job ? (
+                        <div className="mx-auto max-w-sm">
+                          <p className="font-display text-base font-semibold text-dex-brand">
+                            Ready when you are
+                          </p>
+                          <p className="mt-1.5 text-sm text-dex-muted">
+                            Paste a product-page URL above and DEX will find suppliers for the
+                            exact part, worldwide.
+                          </p>
+                        </div>
+                      ) : isRunning ? (
+                        <div className="flex items-center justify-center gap-2 text-dex-muted">
+                          <Spinner className="text-dex-accent" />
+                          Searching global suppliers…
+                        </div>
+                      ) : job.status === 'failed' ? (
+                        <p className="text-sm text-dex-muted">
+                          No suppliers found. Try a product URL that clearly shows a manufacturer
+                          part number.
+                        </p>
+                      ) : (
+                        <p className="text-sm text-dex-muted">
+                          No matching supplier offers for this part.
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
         </section>
-      ) : null}
+      </main>
 
-      <section className="rounded-xl border border-dex-border bg-dex-bg-elevated/90 p-4">
-        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-lg font-medium">Supplier results</h2>
-            <p className="text-sm text-dex-muted">
-              {offers.length} shown · sorted by USD price (unpriced last)
-              {job?.status === 'completed_with_errors'
-                ? ' · some candidates failed (best-effort)'
-                : ''}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter table…"
-              className="rounded-md border border-dex-border bg-transparent px-3 py-1.5 text-sm"
-              aria-label="Filter supplier results"
-            />
-            {job && TERMINAL.has(job.status) && offers.length > 0 ? (
-              <>
-                <a
-                  className="rounded-md border border-dex-border px-3 py-1.5 text-sm hover:bg-dex-bg"
-                  href={`/api/searches/${job.id}/export?format=csv`}
-                >
-                  Export CSV
-                </a>
-                <a
-                  className="rounded-md border border-dex-border px-3 py-1.5 text-sm hover:bg-dex-bg"
-                  href={`/api/searches/${job.id}/export?format=xlsx`}
-                >
-                  Export Excel
-                </a>
-              </>
-            ) : null}
-          </div>
+      <footer className="border-t border-dex-border">
+        <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-2 px-4 py-5 text-xs text-dex-muted sm:flex-row md:px-8">
+          <p>© {new Date().getFullYear()} DEX · Global Sourcing Assistant</p>
+          <p>Procurement intelligence for the DEX team</p>
         </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-dex-border text-dex-muted">
-              <tr>
-                <th className="px-2 py-2">Supplier</th>
-                <th className="px-2 py-2">Country</th>
-                <th className="px-2 py-2">Manufacturer</th>
-                <th className="px-2 py-2">MPN</th>
-                <th className="px-2 py-2">Supplier P/N</th>
-                <th className="px-2 py-2">Price</th>
-                <th className="px-2 py-2">Currency</th>
-                <th className="px-2 py-2">USD</th>
-                <th className="px-2 py-2">Stock</th>
-                <th className="px-2 py-2">MOQ</th>
-                <th className="px-2 py-2">Lead</th>
-                <th className="px-2 py-2">Match</th>
-                <th className="px-2 py-2">Reliability</th>
-                <th className="px-2 py-2">Verified</th>
-                <th className="px-2 py-2">Link</th>
-                <th className="px-2 py-2">Warnings</th>
-              </tr>
-            </thead>
-            <tbody>
-              {offers.map((offer) => (
-                <tr key={offer.id} className="border-b border-dex-border/60 align-top">
-                  <td className="px-2 py-2">{offer.supplier.name ?? offer.supplier.domain}</td>
-                  <td className="px-2 py-2">{offer.supplier.country ?? '—'}</td>
-                  <td className="px-2 py-2">{offer.manufacturer ?? '—'}</td>
-                  <td className="px-2 py-2 font-medium">{offer.mpn}</td>
-                  <td className="px-2 py-2">{offer.supplierPartNumber ?? '—'}</td>
-                  <td className="px-2 py-2">{offer.price ?? 'Price unavailable'}</td>
-                  <td className="px-2 py-2">{offer.currency ?? '—'}</td>
-                  <td className="px-2 py-2">{offer.priceUsd ?? 'Price unavailable'}</td>
-                  <td className="px-2 py-2">
-                    {offer.stockQuantity ?? offer.availability ?? 'Stock unknown'}
-                  </td>
-                  <td className="px-2 py-2">{offer.moq ?? '—'}</td>
-                  <td className="px-2 py-2">{offer.leadTime ?? 'Lead time unavailable'}</td>
-                  <td className="px-2 py-2">{offer.matchConfidence.toFixed(2)}</td>
-                  <td className="px-2 py-2">
-                    {offer.reliabilityScore != null ? offer.reliabilityScore.toFixed(2) : '—'}
-                  </td>
-                  <td className="px-2 py-2">{new Date(offer.extractedAt).toLocaleString()}</td>
-                  <td className="px-2 py-2">
-                    <a
-                      className="text-dex-accent underline"
-                      href={offer.productUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open
-                    </a>
-                  </td>
-                  <td className="px-2 py-2 text-dex-warn">
-                    {offer.riskFlags?.length ? offer.riskFlags.join(', ') : '—'}
-                  </td>
-                </tr>
-              ))}
-              {offers.length === 0 ? (
-                <tr>
-                  <td className="px-2 py-6 text-dex-muted" colSpan={16}>
-                    {!job
-                      ? 'Paste a product-page URL and click Find Suppliers.'
-                      : isRunning
-                        ? 'No supplier rows yet — the pipeline is still working…'
-                        : job.status === 'failed'
-                          ? 'No suppliers found. Try another product URL with a clear manufacturer part number.'
-                          : 'No matching supplier offers for this MPN.'}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </main>
+      </footer>
+    </div>
   );
-}
-
-function statusPercent(status: string): number {
-  const map: Record<string, number> = {
-    queued: 3,
-    validating: 8,
-    fetching_source: 15,
-    extracting_identity: 22,
-    identifying_mpn: 30,
-    discovering: 42,
-    extracting: 60,
-    normalizing: 78,
-    enriching: 90,
-    completed: 100,
-    completed_with_errors: 100,
-    failed: 100,
-    cancelled: 100,
-  };
-  return map[status] ?? 10;
 }

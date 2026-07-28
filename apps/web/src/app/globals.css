@@ -1,27 +1,41 @@
 @import 'tailwindcss';
 
 :root {
-  --dex-bg: #eef2f6;
+  --dex-bg: #f2f5f9;
   --dex-bg-elevated: #ffffff;
-  --dex-fg: #15202b;
-  --dex-muted: #5b6b7c;
-  --dex-accent: #1f4b99;
-  --dex-border: #cfd8e3;
-  --dex-brand: #0b1c2c;
-  --dex-ok: #1f7a4d;
-  --dex-warn: #9a6b00;
+  --dex-fg: #14212e;
+  --dex-muted: #5d6d7e;
+  --dex-accent: #1d5bd8;
+  --dex-accent-soft: #e8effc;
+  --dex-border: #d7dfe9;
+  --dex-brand: #0a1f33;
+  --dex-ok: #16794c;
+  --dex-ok-soft: #e2f4ea;
+  --dex-warn: #935f00;
+  --dex-warn-soft: #fdf2da;
+  --dex-danger: #b3261e;
+  --dex-danger-soft: #fbe9e7;
+  --dex-shadow: 0 1px 2px rgba(10, 31, 51, 0.05), 0 8px 24px -12px rgba(10, 31, 51, 0.18);
+  --dex-shadow-lg: 0 2px 4px rgba(10, 31, 51, 0.06), 0 24px 48px -16px rgba(10, 31, 51, 0.25);
 }
 
 .dark {
-  --dex-bg: #0f1419;
-  --dex-bg-elevated: #1a222c;
-  --dex-fg: #e8eef4;
-  --dex-muted: #9aa8b6;
-  --dex-accent: #4d82e8;
-  --dex-border: #2a3542;
-  --dex-brand: #f2f6fa;
-  --dex-ok: #3dba7c;
-  --dex-warn: #e0b34d;
+  --dex-bg: #0c1218;
+  --dex-bg-elevated: #151d27;
+  --dex-fg: #e9eff5;
+  --dex-muted: #94a4b4;
+  --dex-accent: #5b8def;
+  --dex-accent-soft: #1a2740;
+  --dex-border: #263241;
+  --dex-brand: #f3f7fb;
+  --dex-ok: #43c384;
+  --dex-ok-soft: #12291e;
+  --dex-warn: #e5b556;
+  --dex-warn-soft: #2b2210;
+  --dex-danger: #ef7b74;
+  --dex-danger-soft: #321512;
+  --dex-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  --dex-shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.4), 0 24px 48px -16px rgba(0, 0, 0, 0.6);
 }
 
 @theme inline {
@@ -30,19 +44,97 @@
   --color-dex-fg: var(--dex-fg);
   --color-dex-muted: var(--dex-muted);
   --color-dex-accent: var(--dex-accent);
+  --color-dex-accent-soft: var(--dex-accent-soft);
   --color-dex-border: var(--dex-border);
   --color-dex-brand: var(--dex-brand);
   --color-dex-ok: var(--dex-ok);
+  --color-dex-ok-soft: var(--dex-ok-soft);
   --color-dex-warn: var(--dex-warn);
-  --font-sans: 'Source Sans 3', 'Segoe UI', 'Helvetica Neue', sans-serif;
-  --font-display: 'IBM Plex Sans', 'Source Sans 3', sans-serif;
+  --color-dex-warn-soft: var(--dex-warn-soft);
+  --color-dex-danger: var(--dex-danger);
+  --color-dex-danger-soft: var(--dex-danger-soft);
+  --font-sans: var(--font-inter), 'Segoe UI', 'Helvetica Neue', sans-serif;
+  --font-display: var(--font-sora), var(--font-inter), sans-serif;
+  --shadow-card: var(--dex-shadow);
+  --shadow-card-lg: var(--dex-shadow-lg);
 }
 
 body {
   background:
-    radial-gradient(1000px 520px at 0% -10%, rgba(31, 75, 153, 0.14), transparent 55%),
-    radial-gradient(800px 420px at 100% 0%, rgba(45, 120, 110, 0.1), transparent 50%),
+    radial-gradient(1100px 560px at -5% -12%, rgba(29, 91, 216, 0.12), transparent 55%),
+    radial-gradient(900px 480px at 105% -5%, rgba(22, 121, 76, 0.08), transparent 50%),
     var(--dex-bg);
   color: var(--dex-fg);
   min-height: 100vh;
+}
+
+::selection {
+  background: var(--dex-accent);
+  color: #fff;
+}
+
+@keyframes dex-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dex-pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes dex-progress-sheen {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+.dex-fade-up {
+  animation: dex-fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dex-pulse-dot {
+  animation: dex-pulse-dot 1.4s ease-in-out infinite;
+}
+
+.dex-progress-active {
+  background-image: linear-gradient(
+    100deg,
+    var(--dex-accent) 30%,
+    color-mix(in srgb, var(--dex-accent) 55%, white) 50%,
+    var(--dex-accent) 70%
+  );
+  background-size: 200% 100%;
+  animation: dex-progress-sheen 1.6s linear infinite;
+}
+
+/* Slim, theme-aware scrollbars for tables and event feeds */
+.dex-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--dex-border) transparent;
+}
+.dex-scroll::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.dex-scroll::-webkit-scrollbar-thumb {
+  background: var(--dex-border);
+  border-radius: 8px;
+}
+.dex-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
