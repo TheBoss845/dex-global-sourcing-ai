@@ -4,6 +4,7 @@ export { AppError, ErrorCodes } from './errors.js';
 export { DEFAULT_JOB_BUDGET, QUEUE_NAMES } from './budget.js';
 export type { JobBudget, QueueName } from './budget.js';
 export { normalizeMpn, mpnsMatch } from './mpn.js';
+export { cleanDisplayText } from './text.js';
 export { parseMoney, fetchUsdRates, toUsd } from './money.js';
 export {
   assertSafeUrl,

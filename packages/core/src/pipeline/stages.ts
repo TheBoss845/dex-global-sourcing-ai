@@ -24,6 +24,7 @@ import { recordJobOutcome, suggestSuppliers } from '@dex/knowledge';
 import type { JobBudget } from '../budget.js';
 import { AppError, ErrorCodes } from '../errors.js';
 import { identifyManufacturerPartNumber } from '../identity/identify-mpn.js';
+import { cleanDisplayText } from '../text.js';
 import { fetchUsdRates, parseMoney, toUsd } from '../money.js';
 import { mpnsMatch, normalizeMpn } from '../mpn.js';
 import { enqueue } from '../queue.js';
@@ -377,10 +378,10 @@ export async function runResolveStage(jobId: string, env: PipelineEnv): Promise<
       brand: identified.brand || identified.manufacturer,
       modelNumber: identified.modelNumber,
       supplierSku: identified.supplierSku,
-      title: identified.title,
+      title: cleanDisplayText(identified.title) ?? identified.title,
       imageUrl: extractProductImage(page.body, page.finalUrl || sourceUrl) ?? null,
-      descriptionRaw: identified.description,
-      descriptionClean: identified.description,
+      descriptionRaw: cleanDisplayText(identified.description) ?? identified.description,
+      descriptionClean: cleanDisplayText(identified.description) ?? identified.description,
       identificationEvidence: {
         chosen: identified.chosenEvidence,
         all: identified.evidence.slice(0, 40),
@@ -1458,13 +1459,15 @@ export async function runEnrichStage(jobId: string, env: PipelineEnv): Promise<v
         })),
         timeoutMs: env.serverless ? 7_000 : 20_000,
       });
-      summary = result.summary;
-      if (job.part && (result.cleanedDescription || result.productName)) {
+      summary = cleanDisplayText(result.summary) ?? result.summary;
+      const cleanedDescription = cleanDisplayText(result.cleanedDescription);
+      const productName = cleanDisplayText(result.productName);
+      if (job.part && (cleanedDescription || productName)) {
         await prisma.part.update({
           where: { id: job.part.id },
           data: {
-            ...(result.cleanedDescription ? { descriptionClean: result.cleanedDescription } : {}),
-            ...(result.productName ? { displayName: result.productName } : {}),
+            ...(cleanedDescription ? { descriptionClean: cleanedDescription } : {}),
+            ...(productName ? { displayName: productName } : {}),
           },
         });
       }
