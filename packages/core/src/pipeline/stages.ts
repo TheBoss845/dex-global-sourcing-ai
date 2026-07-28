@@ -573,12 +573,20 @@ export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise
   });
 
   // Always include the original source product page as a candidate so the user
-  // sees at least the supplier they started from when it validates.
+  // sees at least the supplier they started from when it validates —
+  // unless the source is a DEX property (DEX never buys from itself).
   if (job.finalSourceUrl || job.rawSourceUrl) {
     const source = job.finalSourceUrl || job.rawSourceUrl!;
     try {
       const hostname = new URL(source).hostname;
       const domain = extractRegistrableDomain(hostname);
+      if (isOwnCompanyDomain(domain)) {
+        await appendJobEvent(jobId, 'Source page is a DEX property — excluded from vendor results', {
+          stage: 'discovering',
+        });
+        await enqueue(env.redisUrl, 'jobs-extract', 'extract', { jobId }, `extract-${jobId}`);
+        return;
+      }
       await prisma.jobCandidate.upsert({
         where: { jobId_url: { jobId, url: source } },
         create: {
@@ -636,7 +644,30 @@ function buildSearchQueries(mpn: string, manufacturer?: string | null): string[]
   return base;
 }
 
+/**
+ * DEX's own properties — this tool finds external suppliers for DEX,
+ * so DEX must never appear as a vendor in its own reports.
+ * Extend without code changes via EXCLUDED_VENDOR_DOMAINS (comma list).
+ */
+const OWN_COMPANY_DOMAINS = [
+  'supplyitnow.com',
+  'dex.com',
+  'dataexchange.com',
+  'dataexchangecorp.com',
+];
+
+function isOwnCompanyDomain(domain: string): boolean {
+  const extra = (process.env.EXCLUDED_VENDOR_DOMAINS ?? '')
+    .split(',')
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean);
+  return [...OWN_COMPANY_DOMAINS, ...extra].some(
+    (own) => domain === own || domain.endsWith(`.${own}`),
+  );
+}
+
 function isLowValueDomain(domain: string, url: string): boolean {
+  if (isOwnCompanyDomain(domain)) return true;
   const blocked = [
     'youtube.com',
     'facebook.com',
@@ -726,6 +757,19 @@ export async function runExtractStage(
     const wallClockMs = (latest.budgetJson as JobBudget).wallClockMs ?? budget.wallClockMs;
     if (latest.startedAt && Date.now() - latest.startedAt.getTime() > wallClockMs) {
       throw new AppError(ErrorCodes.BudgetExceeded, 'Job wall-clock budget exceeded');
+    }
+
+    // DEX never buys from itself — reject own-company candidates outright.
+    if (isOwnCompanyDomain(candidate.domain)) {
+      await prisma.jobCandidate.update({
+        where: { id: candidate.id },
+        data: {
+          status: 'rejected',
+          rejectionReason: 'own_company',
+          errorMessage: 'DEX property — excluded from vendor results',
+        },
+      });
+      continue;
     }
 
     await prisma.jobCandidate.update({
