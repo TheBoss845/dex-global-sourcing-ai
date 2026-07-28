@@ -4,27 +4,48 @@ AI-powered worldwide supplier discovery for DEX purchasing teams.
 
 ## Architecture
 
-The architecture is **frozen**. Read:
+Frozen design: [docs/architecture.md](docs/architecture.md) · [docs/packages.md](docs/packages.md) · [docs/agent-guidelines.md](docs/agent-guidelines.md)
 
-- [docs/architecture.md](docs/architecture.md) — system design (incl. Supplier Knowledge Base & AI-friendly module rules)
-- [docs/packages.md](docs/packages.md) — package boundaries
-- [docs/agent-guidelines.md](docs/agent-guidelines.md) — human/AI contributor rules
+**Coverage contract:** best-effort worldwide discovery across configured sources + Tavily web search, ranked by USD, with confidence/freshness metadata.
 
-## Status
+## Quick start
 
-Phase 0 foundation in progress. Implementation proceeds one checklist task at a time.
+```bash
+cp .env.example .env
+# add TAVILY_API_KEY and OPENAI_API_KEY
 
-## Tooling
+docker compose up -d   # or use local Postgres/Redis
+pnpm install
+pnpm db:generate
+pnpm db:migrate
 
-- Node.js 20+
-- pnpm 9+ (`packageManager` pinned in root `package.json`)
-- TypeScript base config: [`tsconfig.base.json`](tsconfig.base.json) — see [`tooling/typescript/README.md`](tooling/typescript/README.md)
+# terminal 1
+pnpm --filter @dex/worker start
 
-## Planned external providers
+# terminal 2
+pnpm --filter @dex/web dev
+```
 
-| Concern | Provider | Env var (later) |
-|---------|----------|-----------------|
+Open http://localhost:3000
+
+## Providers
+
+| Concern | Provider | Env |
+|---------|----------|-----|
 | Web search | Tavily | `TAVILY_API_KEY` |
-| AI enrichment | OpenAI | `OPENAI_API_KEY` |
+| AI enrichment | OpenAI | `OPENAI_API_KEY`, `AI_ENABLED=true` |
+| FX | Frankfurter | none |
 
-Secrets belong in `.env` (gitignored), never in git.
+## Monorepo
+
+- `apps/web` — Next.js dashboard + BFF
+- `apps/worker` — BullMQ multi-queue pipeline
+- `packages/core` — domain orchestration
+- `packages/db` — Prisma/Postgres
+- `packages/integrations` — Tavily, HTTP fetch, extractors
+- `packages/knowledge` — supplier knowledge base
+- `packages/ai` — OpenAI enrichers
+
+## Scripts
+
+`pnpm dev` · `pnpm build` · `pnpm lint` · `pnpm typecheck` · `pnpm test` · `pnpm db:migrate`

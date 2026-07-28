@@ -1,0 +1,320 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SearchInputType {
+  MPN
+  URL
+}
+
+enum SearchJobStatus {
+  queued
+  resolving
+  discovering
+  extracting
+  normalizing
+  enriching
+  completed
+  completed_with_errors
+  failed
+  cancelled
+}
+
+enum CandidateStatus {
+  pending
+  extracting
+  extracted
+  rejected
+  failed
+}
+
+enum SourceType {
+  api
+  search
+  scrape
+  cache
+  knowledge
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  searchJobs       SearchJob[]
+  partSearchCaches PartSearchCache[]
+  supplierProfiles SupplierProfile[]
+
+  @@map("organizations")
+}
+
+model Part {
+  id               String   @id @default(cuid())
+  rawMpn           String   @map("raw_mpn")
+  normalizedMpn    String   @map("normalized_mpn")
+  manufacturer     String?
+  descriptionRaw   String?  @map("description_raw")
+  descriptionClean String?  @map("description_clean")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  searchJobs SearchJob[]
+
+  @@index([normalizedMpn])
+  @@map("parts")
+}
+
+model SearchJob {
+  id              String          @id @default(cuid())
+  orgId           String?         @map("org_id")
+  inputType       SearchInputType @map("input_type")
+  inputValue      String          @map("input_value")
+  forceRefresh    Boolean         @default(false) @map("force_refresh")
+  status          SearchJobStatus @default(queued)
+  traceId         String          @map("trace_id")
+  partId          String?         @map("part_id")
+  budgetJson      Json            @map("budget_json")
+  progressJson    Json?           @map("progress_json")
+  summaryJson     Json?           @map("summary_json")
+  errorCode       String?         @map("error_code")
+  errorMessage    String?         @map("error_message")
+  offerCount      Int             @default(0) @map("offer_count")
+  startedAt       DateTime?       @map("started_at")
+  finishedAt      DateTime?       @map("finished_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  org        Organization?  @relation(fields: [orgId], references: [id])
+  part       Part?          @relation(fields: [partId], references: [id])
+  events     JobEvent[]
+  candidates JobCandidate[]
+  offers     Offer[]
+  suppliers  JobSupplier[]
+
+  @@index([orgId, createdAt])
+  @@index([status, createdAt])
+  @@map("search_jobs")
+}
+
+model JobEvent {
+  id        String   @id @default(cuid())
+  jobId     String   @map("job_id")
+  level     String   @default("info")
+  stage     String?
+  message   String
+  dataJson  Json?    @map("data_json")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  job SearchJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@map("job_events")
+}
+
+model JobCandidate {
+  id           String          @id @default(cuid())
+  jobId        String          @map("job_id")
+  url          String
+  domain       String
+  title        String?
+  snippet      String?
+  sourceType   SourceType      @map("source_type")
+  score        Float           @default(0)
+  status       CandidateStatus @default(pending)
+  errorMessage String?         @map("error_message")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  job SearchJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, url])
+  @@index([jobId, status])
+  @@index([domain])
+  @@map("job_candidates")
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  domain    String   @unique
+  name      String?
+  website   String?
+  country   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  offers   Offer[]
+  jobLinks JobSupplier[]
+  profile  SupplierProfile?
+
+  @@map("suppliers")
+}
+
+model JobSupplier {
+  id         String @id @default(cuid())
+  jobId      String @map("job_id")
+  supplierId String @map("supplier_id")
+
+  job      SearchJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  supplier Supplier  @relation(fields: [supplierId], references: [id])
+
+  @@unique([jobId, supplierId])
+  @@map("job_suppliers")
+}
+
+model Offer {
+  id              String     @id @default(cuid())
+  jobId           String     @map("job_id")
+  supplierId      String     @map("supplier_id")
+  mpn             String
+  manufacturer    String?
+  productUrl      String     @map("product_url")
+  price           Decimal?   @db.Decimal(18, 6)
+  currency        String?
+  priceUsd        Decimal?   @map("price_usd") @db.Decimal(18, 6)
+  stockQuantity   Int?       @map("stock_quantity")
+  leadTime        String?    @map("lead_time")
+  moq             Int?
+  sourceType      SourceType @map("source_type")
+  matchConfidence Float      @default(1) @map("match_confidence")
+  possibleMatch   Boolean    @default(false) @map("possible_match")
+  riskFlags       String[]   @default([]) @map("risk_flags")
+  description     String?
+  artifactHash    String?    @map("artifact_hash")
+  artifactKey     String?    @map("artifact_key")
+  extractedAt     DateTime   @default(now()) @map("extracted_at")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  job      SearchJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  supplier Supplier  @relation(fields: [supplierId], references: [id])
+
+  @@unique([jobId, productUrl])
+  @@index([jobId, priceUsd])
+  @@index([supplierId])
+  @@map("offers")
+}
+
+model PartSearchCache {
+  id            String   @id @default(cuid())
+  orgId         String?  @map("org_id")
+  normalizedMpn String   @map("normalized_mpn")
+  manufacturer  String?
+  payloadJson   Json     @map("payload_json")
+  sourceJobId   String?  @map("source_job_id")
+  expiresAt     DateTime @map("expires_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  org Organization? @relation(fields: [orgId], references: [id])
+
+  @@unique([normalizedMpn, manufacturer])
+  @@index([normalizedMpn, expiresAt])
+  @@map("part_search_caches")
+}
+
+model ExchangeRate {
+  id        String   @id @default(cuid())
+  base      String
+  quote     String
+  rate      Decimal  @db.Decimal(18, 8)
+  asOf      DateTime @map("as_of")
+  source    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([base, quote, asOf, source])
+  @@index([base, quote, asOf])
+  @@map("exchange_rates")
+}
+
+/// Supplier Knowledge Base
+model SupplierProfile {
+  id                 String   @id @default(cuid())
+  orgId              String?  @map("org_id")
+  supplierId         String   @unique @map("supplier_id")
+  preferred          Boolean  @default(false)
+  countriesServed    String[] @default([]) @map("countries_served")
+  reliabilityScore   Float    @default(0.5) @map("reliability_score")
+  healthStatus       String   @default("unknown") @map("health_status")
+  successCount       Int      @default(0) @map("success_count")
+  failureCount       Int      @default(0) @map("failure_count")
+  searchFrequency    Int      @default(0) @map("search_frequency")
+  avgResponseQuality Float    @default(0) @map("avg_response_quality")
+  lastSuccessAt      DateTime? @map("last_success_at")
+  lastFailureAt      DateTime? @map("last_failure_at")
+  scoringVersion     String   @default("v1") @map("scoring_version")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  org      Organization? @relation(fields: [orgId], references: [id])
+  supplier Supplier      @relation(fields: [supplierId], references: [id])
+
+  manufacturers SupplierManufacturer[]
+  mpnStats      SupplierMpnStat[]
+  prices        SupplierPriceObservation[]
+
+  @@index([orgId, reliabilityScore])
+  @@map("supplier_profiles")
+}
+
+model SupplierManufacturer {
+  id        String   @id @default(cuid())
+  profileId String   @map("profile_id")
+  manufacturer String
+  hitCount  Int      @default(1) @map("hit_count")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  profile SupplierProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, manufacturer])
+  @@map("supplier_manufacturers")
+}
+
+model SupplierMpnStat {
+  id            String   @id @default(cuid())
+  profileId     String   @map("profile_id")
+  normalizedMpn String   @map("normalized_mpn")
+  successCount  Int      @default(0) @map("success_count")
+  lastSuccessAt DateTime? @map("last_success_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  profile SupplierProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, normalizedMpn])
+  @@index([normalizedMpn])
+  @@map("supplier_mpn_stats")
+}
+
+model SupplierPriceObservation {
+  id        String   @id @default(cuid())
+  profileId String   @map("profile_id")
+  normalizedMpn String @map("normalized_mpn")
+  price     Decimal  @db.Decimal(18, 6)
+  currency  String
+  priceUsd  Decimal? @map("price_usd") @db.Decimal(18, 6)
+  jobId     String?  @map("job_id")
+  observedAt DateTime @map("observed_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  profile SupplierProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, normalizedMpn, observedAt])
+  @@map("supplier_price_observations")
+}
+
+model KnowledgeEvent {
+  id        String   @id @default(cuid())
+  jobId     String   @map("job_id")
+  eventType String   @map("event_type")
+  summary   String
+  dataJson  Json?    @map("data_json")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([jobId])
+  @@map("knowledge_events")
+}

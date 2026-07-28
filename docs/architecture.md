@@ -266,7 +266,7 @@ interface KnowledgeLearner {
 }
 ```
 
-Runs on queue `jobs:knowledge` (async, durable, idempotent on `jobId`). Failures must not fail the user-facing job.
+Runs on queue `jobs-knowledge` (async, durable, idempotent on `jobId`). Failures must not fail the user-facing job.
 
 ### 16.6 Scoring principles
 

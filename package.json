@@ -8,9 +8,27 @@
   },
   "scripts": {
     "preinstall": "node -e \"const ua=process.env.npm_config_user_agent||''; if(!ua.includes('pnpm')){console.error('Use pnpm to install dependencies.'); process.exit(1)}\"",
-    "typecheck:base": "tsc -p tooling/typescript/tsconfig.json --noEmit"
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "turbo run typecheck",
+    "typecheck:base": "tsc -p tooling/typescript/tsconfig.json --noEmit",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @dex/db generate",
+    "db:migrate": "pnpm --filter @dex/db migrate:deploy",
+    "db:migrate:dev": "pnpm --filter @dex/db migrate:dev",
+    "smoke:phase0": "bash scripts/phase0-smoke.sh"
   },
   "devDependencies": {
-    "typescript": "^5.8.2"
+    "@eslint/js": "^9.22.0",
+    "eslint": "^9.22.0",
+    "eslint-config-prettier": "^10.1.1",
+    "globals": "^16.0.0",
+    "prettier": "^3.5.3",
+    "turbo": "^2.4.4",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.1"
   }
 }
