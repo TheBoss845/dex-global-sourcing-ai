@@ -754,6 +754,18 @@ function isLowValueDomain(domain: string, url: string): boolean {
     'hackaday.com',
     'blogspot.com',
     'wordpress.com',
+    'wired.com',
+    'techcrunch.com',
+    'theverge.com',
+    'cnet.com',
+    'tomshardware.com',
+    'arstechnica.com',
+    'engadget.com',
+    'zdnet.com',
+    'pcmag.com',
+    'raspberry.tips',
+    'howtogeek.com',
+    'makeuseof.com',
     'flightaware.com',
     'flightstats.com',
     'skyscanner.com',
@@ -851,6 +863,32 @@ export async function runExtractStage(
     });
     ready.push(candidate);
   }
+
+  // At most one contact-page lookup per invocation keeps serverless ticks fast.
+  let contactLookupUsed = false;
+
+  /** Vendors often publish sales emails only on their contact page. */
+  const lookupContactEmail = async (domain: string): Promise<string | undefined> => {
+    if (contactLookupUsed && env.serverless) return undefined;
+    contactLookupUsed = true;
+    const paths = env.serverless ? ['/contact'] : ['/contact', '/contact-us', '/about'];
+    for (const path of paths) {
+      try {
+        const page = await safeFetchText(`https://${domain}${path}`, {
+          timeoutMs: env.serverless ? 3_500 : 8_000,
+          maxBytes: 400_000,
+          maxRedirects: 3,
+        });
+        if (page.status < 400) {
+          const email = extractContactEmail(page.body);
+          if (email) return email;
+        }
+      } catch {
+        // best-effort — try next path or give up
+      }
+    }
+    return undefined;
+  };
 
   const processCandidate = async (candidate: (typeof candidates)[number]): Promise<void> => {
     try {
@@ -1041,7 +1079,17 @@ export async function runExtractStage(
       }
 
       const known = KNOWN_DISTRIBUTORS[candidate.domain];
-      const contactEmail = extractContactEmail(page.body);
+      let contactEmail = extractContactEmail(page.body);
+      if (!contactEmail) {
+        // Only fetch the contact page when this supplier has no stored email yet.
+        const existing = await prisma.supplier.findUnique({
+          where: { domain: candidate.domain },
+          select: { contactEmail: true },
+        });
+        if (!existing?.contactEmail) {
+          contactEmail = await lookupContactEmail(candidate.domain);
+        }
+      }
       const supplier = await prisma.supplier.upsert({
         where: { domain: candidate.domain },
         create: {
