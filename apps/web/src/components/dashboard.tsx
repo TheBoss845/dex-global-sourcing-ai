@@ -29,6 +29,7 @@ type SearchJob = {
     brand?: string | null;
     descriptionClean?: string | null;
     title?: string | null;
+    displayName?: string | null;
     imageUrl?: string | null;
   } | null;
   errorMessage?: string | null;
@@ -215,6 +216,7 @@ function fmtUsd(value: string | null): string | null {
 type BatchJobRow = {
   id: string;
   mpn: string;
+  productName?: string | null;
   description: string | null;
   imageUrl?: string | null;
   status: string;
@@ -1049,8 +1051,11 @@ export function Dashboard() {
                             <span>{item.mpn}</span>
                           </div>
                         </td>
-                        <td className="max-w-[260px] truncate px-4 py-3 text-dex-muted">
-                          {item.description ?? '—'}
+                        <td className="max-w-[280px] px-4 py-3">
+                          {item.productName ? (
+                            <p className="truncate font-medium text-dex-fg">{item.productName}</p>
+                          ) : null}
+                          <p className="truncate text-dex-muted">{item.description ?? '—'}</p>
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={item.status} />
@@ -1249,7 +1254,18 @@ export function Dashboard() {
                   <p className="text-[11px] font-semibold tracking-wide text-dex-muted uppercase">
                     Identified part
                   </p>
-                  <p className="font-display mt-1 text-2xl font-semibold text-dex-brand">
+                  {job.part?.displayName ? (
+                    <p className="font-display mt-1 text-2xl font-semibold text-dex-brand">
+                      {job.part.displayName}
+                    </p>
+                  ) : null}
+                  <p
+                    className={
+                      job.part?.displayName
+                        ? 'mt-0.5 text-sm font-medium text-dex-fg'
+                        : 'font-display mt-1 text-2xl font-semibold text-dex-brand'
+                    }
+                  >
                     {identifiedMfr ? `${identifiedMfr} · ` : ''}
                     {identifiedMpn}
                   </p>

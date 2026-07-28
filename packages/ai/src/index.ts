@@ -322,6 +322,7 @@ export async function verifyPartImage(input: {
 }
 
 const enrichmentSchema = z.object({
+  productName: z.string().max(80).optional(),
   cleanedDescription: z.string().max(4000).optional(),
   summary: z.string().max(2000),
   suspiciousOfferIndexes: z.array(z.number().int().nonnegative()).max(50).default([]),
@@ -371,7 +372,8 @@ export async function enrichSearchResults(input: {
       {
         role: 'system',
         content:
-          'You assist procurement engineers. Return JSON only with keys: summary, cleanedDescription, suspiciousOfferIndexes[], notes[]. ' +
+          'You assist procurement engineers. Return JSON only with keys: productName, summary, cleanedDescription, suspiciousOfferIndexes[], notes[]. ' +
+          'productName is REQUIRED: a short plain-English name for what this product actually is, 2–6 words, title case, no part numbers (e.g. "5V Linear Voltage Regulator", "Laptop Hinge with Antenna", "Molded-Case Circuit Breaker"). ' +
           'cleanedDescription is REQUIRED: write a clear, professional 1–2 sentence description that BEGINS by stating plainly what the part is in simple words (e.g. "A 5-volt voltage regulator chip that…", "A replacement laptop hinge that…"), synthesized from the provided source description, part number, manufacturer, and vendor page descriptions. ' +
           'Expand cryptic catalog shorthand into readable English (e.g. "ASSY,BZL,FRT" → "front bezel assembly") but NEVER invent specifications, ratings, or compatibility that are not implied by the provided text. ' +
           'Scrutinize prices hard: flag by index any offer whose USD price is implausible for this part (extreme outlier vs the other offers, suspiciously low for the category, or likely a shipping/accessory/bundle price scraped by mistake). ' +

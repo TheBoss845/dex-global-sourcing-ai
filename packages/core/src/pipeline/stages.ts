@@ -1315,10 +1315,13 @@ export async function runEnrichStage(jobId: string, env: PipelineEnv): Promise<v
         })),
       });
       summary = result.summary;
-      if (job.part && result.cleanedDescription) {
+      if (job.part && (result.cleanedDescription || result.productName)) {
         await prisma.part.update({
           where: { id: job.part.id },
-          data: { descriptionClean: result.cleanedDescription },
+          data: {
+            ...(result.cleanedDescription ? { descriptionClean: result.cleanedDescription } : {}),
+            ...(result.productName ? { displayName: result.productName } : {}),
+          },
         });
       }
       for (const idx of result.suspiciousOfferIndexes) {

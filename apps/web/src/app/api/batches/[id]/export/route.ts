@@ -13,6 +13,7 @@ function sanitizeCell(value: string): string {
 
 type ReportRow = {
   partNumber: string;
+  product: string;
   description: string;
   sourceDescription: string;
   vendorRank: string;
@@ -40,6 +41,7 @@ export async function GET(request: Request, { params }: Params) {
   const rows: ReportRow[] = [];
   for (const job of jobs) {
     const partNumber = sanitizeCell(job.inputValue);
+    const product = sanitizeCell(job.part?.displayName ?? '');
     const aiDescription = job.part?.descriptionClean ?? '';
     const rawDescription = job.part?.descriptionRaw ?? job.part?.title ?? '';
     const description = sanitizeCell(aiDescription || rawDescription);
@@ -51,6 +53,7 @@ export async function GET(request: Request, { params }: Params) {
     if (offers.length === 0) {
       rows.push({
         partNumber,
+        product,
         description,
         sourceDescription,
         vendorRank: '—',
@@ -71,6 +74,7 @@ export async function GET(request: Request, { params }: Params) {
     offers.forEach((offer, index) => {
       rows.push({
         partNumber,
+        product,
         description,
         sourceDescription,
         vendorRank: String(index + 1),
@@ -92,6 +96,7 @@ export async function GET(request: Request, { params }: Params) {
 
   const headers: Array<{ key: keyof ReportRow; label: string }> = [
     { key: 'partNumber', label: 'Part Number' },
+    { key: 'product', label: 'Product' },
     { key: 'description', label: 'Description' },
     { key: 'sourceDescription', label: 'Source Description' },
     { key: 'vendorRank', label: 'Vendor #' },
@@ -122,12 +127,14 @@ export async function GET(request: Request, { params }: Params) {
           : h.key === 'description'
             ? 46
             : h.key === 'sourceDescription'
-              ? 32
-              : h.key === 'vendor'
-                ? 26
-                : h.key === 'partNumber'
-                  ? 24
-                  : 14,
+              ? 30
+              : h.key === 'product'
+                ? 28
+                : h.key === 'vendor'
+                  ? 26
+                  : h.key === 'partNumber'
+                    ? 24
+                    : 14,
     }));
 
     // Title banner

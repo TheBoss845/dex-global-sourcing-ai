@@ -80,6 +80,7 @@ model Part {
   modelNumber          String?  @map("model_number")
   supplierSku          String?  @map("supplier_sku")
   title                String?
+  displayName          String?  @map("display_name")
   imageUrl             String?  @map("image_url")
   descriptionRaw       String?  @map("description_raw")
   descriptionClean     String?  @map("description_clean")
