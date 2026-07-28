@@ -30,7 +30,12 @@ export const envSchema = z.object({
 export type AppEnv = z.infer<typeof envSchema>;
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
-  const parsed = envSchema.safeParse(source);
+  // Netlify's one-click Neon database exposes NETLIFY_DATABASE_URL.
+  const normalized: NodeJS.ProcessEnv = {
+    ...source,
+    DATABASE_URL: source.DATABASE_URL?.trim() || source.NETLIFY_DATABASE_URL?.trim() || '',
+  };
+  const parsed = envSchema.safeParse(normalized);
   if (!parsed.success) {
     const details = parsed.error.issues
       .map((issue) => `${issue.path.join('.') || 'env'}: ${issue.message}`)

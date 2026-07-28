@@ -11,7 +11,8 @@
 #   QUEUE_DRIVER   — set to "inline" (also implied when REDIS_URL is unset)
 
 [build]
-  command = "corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter @dex/db build && pnpm --filter @dex/ai build && pnpm --filter @dex/integrations build && pnpm --filter @dex/knowledge build && pnpm --filter @dex/core build && pnpm db:migrate && pnpm --filter @dex/web build"
+  # DATABASE_URL falls back to NETLIFY_DATABASE_URL (Netlify's one-click Neon DB).
+  command = "export DATABASE_URL=\"${DATABASE_URL:-$NETLIFY_DATABASE_URL}\" && corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter @dex/db build && pnpm --filter @dex/ai build && pnpm --filter @dex/integrations build && pnpm --filter @dex/knowledge build && pnpm --filter @dex/core build && pnpm db:migrate && pnpm --filter @dex/web build"
   publish = "apps/web/.next"
 
 [build.environment]

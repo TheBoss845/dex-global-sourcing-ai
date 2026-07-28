@@ -27,12 +27,15 @@ async function checkRedis(redisUrl: string): Promise<boolean> {
 
 export async function GET() {
   // Never crash the health endpoint: report missing configuration instead.
+  const databaseUrlSet = Boolean(
+    process.env.DATABASE_URL?.trim() || process.env.NETLIFY_DATABASE_URL?.trim(),
+  );
   const missing: string[] = [];
-  if (!process.env.DATABASE_URL?.trim()) missing.push('DATABASE_URL');
+  if (!databaseUrlSet) missing.push('DATABASE_URL');
   if (!process.env.AUTH_SECRET?.trim()) missing.push('AUTH_SECRET (recommended)');
   if (!process.env.TAVILY_API_KEY?.trim()) missing.push('TAVILY_API_KEY');
 
-  if (!process.env.DATABASE_URL?.trim()) {
+  if (!databaseUrlSet) {
     return NextResponse.json(
       {
         status: 'misconfigured',
