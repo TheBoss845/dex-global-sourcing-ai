@@ -1177,6 +1177,12 @@ export function Dashboard() {
                       </>
                     ) : null}
                   </p>
+                  {job.part?.descriptionClean &&
+                  job.part.descriptionClean !== job.part.title ? (
+                    <p className="mt-2.5 border-t border-dex-border/60 pt-2.5 text-sm leading-relaxed text-dex-fg">
+                      {job.part.descriptionClean}
+                    </p>
+                  ) : null}
                 </div>
               ) : isRunning ? (
                 <p className="mt-5 flex items-center gap-2 text-sm text-dex-muted">

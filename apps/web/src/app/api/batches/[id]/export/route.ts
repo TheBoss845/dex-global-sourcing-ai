@@ -14,6 +14,7 @@ function sanitizeCell(value: string): string {
 type ReportRow = {
   partNumber: string;
   description: string;
+  sourceDescription: string;
   vendorRank: string;
   vendor: string;
   country: string;
@@ -39,13 +40,19 @@ export async function GET(request: Request, { params }: Params) {
   const rows: ReportRow[] = [];
   for (const job of jobs) {
     const partNumber = sanitizeCell(job.inputValue);
-    const description = sanitizeCell(job.part?.title ?? '');
+    const aiDescription = job.part?.descriptionClean ?? '';
+    const rawDescription = job.part?.descriptionRaw ?? job.part?.title ?? '';
+    const description = sanitizeCell(aiDescription || rawDescription);
+    const sourceDescription = sanitizeCell(
+      aiDescription && rawDescription && aiDescription !== rawDescription ? rawDescription : '',
+    );
     const offers = await listJobOffers(job.id, { includePossible: false, limit: 10 });
 
     if (offers.length === 0) {
       rows.push({
         partNumber,
         description,
+        sourceDescription,
         vendorRank: '—',
         vendor: job.errorMessage ? `No vendors found (${job.errorMessage.slice(0, 80)})` : 'No vendors found',
         country: '',
@@ -65,6 +72,7 @@ export async function GET(request: Request, { params }: Params) {
       rows.push({
         partNumber,
         description,
+        sourceDescription,
         vendorRank: String(index + 1),
         vendor: sanitizeCell(offer.supplier.name ?? offer.supplier.domain),
         country: sanitizeCell(offer.supplier.country ?? ''),
@@ -85,6 +93,7 @@ export async function GET(request: Request, { params }: Params) {
   const headers: Array<{ key: keyof ReportRow; label: string }> = [
     { key: 'partNumber', label: 'Part Number' },
     { key: 'description', label: 'Description' },
+    { key: 'sourceDescription', label: 'Source Description' },
     { key: 'vendorRank', label: 'Vendor #' },
     { key: 'vendor', label: 'Vendor' },
     { key: 'country', label: 'Country' },
@@ -111,12 +120,14 @@ export async function GET(request: Request, { params }: Params) {
         h.key === 'productUrl'
           ? 52
           : h.key === 'description'
-            ? 42
-            : h.key === 'vendor'
-              ? 26
-              : h.key === 'partNumber'
-                ? 24
-                : 14,
+            ? 46
+            : h.key === 'sourceDescription'
+              ? 32
+              : h.key === 'vendor'
+                ? 26
+                : h.key === 'partNumber'
+                  ? 24
+                  : 14,
     }));
 
     // Title banner

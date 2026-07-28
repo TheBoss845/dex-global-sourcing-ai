@@ -1195,6 +1195,8 @@ export async function runEnrichStage(jobId: string, env: PipelineEnv): Promise<v
         model: env.openaiModel,
         mpn: job.part?.originalMpn ?? job.part?.rawMpn ?? job.inputValue,
         manufacturer: job.part?.manufacturer,
+        partDescription: job.part?.descriptionRaw ?? job.part?.descriptionClean,
+        partTitle: job.part?.title,
         offers: job.offers.map((o, index) => ({
           index,
           supplier: o.supplier.name ?? o.supplier.domain,

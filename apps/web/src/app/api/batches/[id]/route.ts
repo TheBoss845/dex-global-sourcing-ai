@@ -27,7 +27,8 @@ export async function GET(_request: Request, { params }: Params) {
       jobs: jobs.map((job) => ({
         id: job.id,
         mpn: job.inputValue,
-        description: job.part?.title ?? null,
+        // Prefer the AI-written description once enrichment has produced one.
+        description: job.part?.descriptionClean ?? job.part?.title ?? null,
         status: job.status,
         offerCount: job.offerCount,
         bestUsd: bestByJob.get(job.id) ?? null,
