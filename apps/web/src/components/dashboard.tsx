@@ -229,6 +229,7 @@ export function Dashboard() {
   >(null);
   const [parseMethod, setParseMethod] = useState<string | null>(null);
   const [parsing, setParsing] = useState(false);
+  const [parseStage, setParseStage] = useState<string | null>(null);
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [offers, setOffers] = useState<OfferRow[]>([]);
   const [query, setQuery] = useState('');
@@ -394,7 +395,11 @@ export function Dashboard() {
       return;
     }
     setParsing(true);
+    const lineCount = batchText.split('\n').filter((l) => l.trim()).length;
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     try {
+      setParseStage(`Scanning ${lineCount} lines…`);
+      const started = Date.now();
       const res = await fetch('/api/batches/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -403,12 +408,29 @@ export function Dashboard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Could not read that parts list');
-      setParsedItems(data.items ?? []);
+
+      // Walk through what was actually understood, step by step.
+      const items = (data.items ?? []) as Array<{
+        mpn: string;
+        description?: string;
+        manufacturer?: string;
+      }>;
+      if (Date.now() - started < 500) await pause(500);
+      setParseStage(`Found ${items.length} part number${items.length === 1 ? '' : 's'}…`);
+      await pause(550);
+      const withMfr = items.filter((i) => i.manufacturer).length;
+      const withDesc = items.filter((i) => i.description).length;
+      setParseStage(
+        `Matched ${withMfr} manufacturer${withMfr === 1 ? '' : 's'} and ${withDesc} description${withDesc === 1 ? '' : 's'}…`,
+      );
+      await pause(550);
+      setParsedItems(items);
       setParseMethod(data.method ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not read that parts list');
     } finally {
       setParsing(false);
+      setParseStage(null);
     }
   }
 
@@ -842,7 +864,7 @@ export function Dashboard() {
                 >
                   {parsing || (batchJobs.length > 0 && !batchDone) ? <Spinner /> : null}
                   {parsing
-                    ? 'Reading…'
+                    ? (parseStage ?? 'Reading…')
                     : batchJobs.length > 0 && !batchDone
                       ? 'Building report…'
                       : 'Read parts list'}
