@@ -36,16 +36,15 @@ RESULT_LIMIT=10
 # Sign-in: @dex.com emails + optional extras (e.g. owner Gmail)
 AUTH_SECRET=long-random-string
 # DEX_EXTRA_ALLOWED_EMAILS=lmfelcher@gmail.com
-# Optional strict mode: emailed magic links instead of instant sign-in
-# AUTH_REQUIRE_EMAIL_VERIFICATION=true
+# Real email verification (6-digit code + magic link) activates when both are set:
 # RESEND_API_KEY=re_...
 # EMAIL_FROM=DEX Sourcing <noreply@your-verified-domain.com>
 # APP_BASE_URL=https://your-app.onrender.com
 ```
 
-**Supported pages:** public HTML product pages that expose a manufacturer part number (JSON-LD, labeled fields, or clear product URL). Bot-walled / JS-only distributor pages may fail honestly until a browser fetcher is added.
+**Supported pages:** public product pages. Pages with a labeled manufacturer part number identify precisely; retail pages without one fall back to grounded AI identification, then the page's own product title.
 
-**Sign-in:** Users enter an **@dex.com** email (or an explicitly allowed address such as the owner Gmail) and are signed in immediately. Set `AUTH_REQUIRE_EMAIL_VERIFICATION=true` to require emailed magic links via Resend instead.
+**Sign-in:** Users enter an **@dex.com** email (or an explicitly allowed address such as the owner Gmail). With Resend configured, they receive a branded verification email with a 6-digit code and one-click link; without Resend, allowed emails sign in instantly.
 
 **Health:** `GET /api/health`
 

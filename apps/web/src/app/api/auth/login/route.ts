@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { prisma } from '@dex/db';
 import {
@@ -22,26 +22,6 @@ function clientIp(request: Request): string {
     request.headers.get('x-real-ip') ||
     'unknown'
   );
-}
-
-/** Email-link verification is opt-in; default is instant sign-in for allowed emails. */
-function emailVerificationRequired(): boolean {
-  return process.env.AUTH_REQUIRE_EMAIL_VERIFICATION === 'true';
-}
-
-function sessionCookieResponse(
-  body: Record<string, unknown>,
-  session: string,
-): NextResponse {
-  const response = NextResponse.json(body);
-  response.cookies.set('dex_session', session, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 7,
-  });
-  return response;
 }
 
 export async function POST(request: Request) {
@@ -88,30 +68,47 @@ export async function POST(request: Request) {
 
     const secret = sessionSecret()!;
 
-    // Default: allowed email signs in immediately. No email delivery involved.
-    if (!emailVerificationRequired()) {
+    // No email provider configured → instant sign-in for allowed emails.
+    // (Set RESEND_API_KEY + EMAIL_FROM to enable real email verification.)
+    if (!emailSendingConfigured()) {
       const session = await createSessionToken(secret, email);
-      return sessionCookieResponse(
-        { ok: true, authRequired: true, signedIn: true, email },
-        session,
-      );
+      const response = NextResponse.json({
+        ok: true,
+        authRequired: true,
+        signedIn: true,
+        email,
+      });
+      response.cookies.set('dex_session', session, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 7,
+      });
+      return response;
     }
 
-    // Strict mode (AUTH_REQUIRE_EMAIL_VERIFICATION=true): email a magic link.
+    // Email verification: 6-digit code + one-click magic link.
     const rawToken = randomBytes(32).toString('hex');
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
     try {
       await prisma.emailVerificationToken.deleteMany({ where: { email, usedAt: null } });
       await prisma.emailVerificationToken.create({
-        data: { email, token: hashToken(rawToken), expiresAt },
+        data: {
+          email,
+          token: hashToken(rawToken),
+          codeHash: hashToken(`${email}:${code}`),
+          expiresAt,
+        },
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return NextResponse.json(
         {
           error:
-            'Database error while creating the verification token. ' +
+            'Database error while creating the verification code. ' +
             'Confirm migrations ran and DATABASE_URL is set. ' +
             `(${message.slice(0, 180)})`,
         },
@@ -120,31 +117,33 @@ export async function POST(request: Request) {
     }
 
     const verifyUrl = `${appBaseUrl(request)}/api/auth/verify?token=${rawToken}`;
-    let emailError: string | null = null;
-    let emailSent = false;
 
-    if (emailSendingConfigured()) {
-      try {
-        await sendVerificationEmail({ to: email, verifyUrl });
-        emailSent = true;
-      } catch (error) {
-        emailError = error instanceof Error ? error.message : 'Failed to send verification email';
-      }
+    try {
+      await sendVerificationEmail({ to: email, verifyUrl, code });
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error: error instanceof Error ? error.message : 'Failed to send verification email',
+        },
+        { status: 502 },
+      );
     }
 
-    const showLink = process.env.NODE_ENV !== 'production' || !emailSent;
-
-    return NextResponse.json({
+    const payload: Record<string, unknown> = {
       ok: true,
       authRequired: true,
-      verificationSent: emailSent,
-      verifyUrl: showLink ? verifyUrl : undefined,
-      message: emailSent
-        ? 'Check your inbox for a verification link.'
-        : emailError
-          ? `Email send failed (${emailError}). Use the sign-in link below.`
-          : 'Use the sign-in link below.',
-    });
+      verificationSent: true,
+      codeRequired: true,
+      message: `We emailed a 6-digit code to ${email}.`,
+    };
+
+    // Local development convenience only; never returned in production.
+    if (process.env.NODE_ENV !== 'production') {
+      payload.devVerifyUrl = verifyUrl;
+      payload.devCode = code;
+    }
+
+    return NextResponse.json(payload);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unexpected sign-in error';
     return NextResponse.json({ error: message }, { status: 500 });

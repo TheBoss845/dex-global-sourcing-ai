@@ -223,6 +223,8 @@ export function Dashboard() {
   const [verificationSent, setVerificationSent] = useState(false);
   const [devVerifyUrl, setDevVerifyUrl] = useState<string | null>(null);
   const [sendingLink, setSendingLink] = useState(false);
+  const [codeInput, setCodeInput] = useState('');
+  const [verifyingCode, setVerifyingCode] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -255,10 +257,9 @@ export function Dashboard() {
     };
   }, []);
 
-  async function signIn(e: React.FormEvent) {
-    e.preventDefault();
+  async function signIn(e?: React.FormEvent) {
+    e?.preventDefault();
     setError(null);
-    setVerificationSent(false);
     setDevVerifyUrl(null);
     setSendingLink(true);
     try {
@@ -292,6 +293,7 @@ export function Dashboard() {
         return;
       }
       setVerificationSent(true);
+      setCodeInput('');
       const link = data.verifyUrl ?? data.devVerifyUrl;
       if (typeof link === 'string') {
         setDevVerifyUrl(link);
@@ -300,6 +302,34 @@ export function Dashboard() {
       setError(err instanceof Error ? err.message : 'Sign-in failed');
     } finally {
       setSendingLink(false);
+    }
+  }
+
+  async function submitCode(code: string) {
+    if (code.length !== 6 || verifyingCode) return;
+    setVerifyingCode(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/auth/verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ email: emailInput.trim(), code }),
+      });
+      const data = (await res.json()) as { error?: string; signedIn?: boolean; email?: string };
+      if (!res.ok) {
+        setError(data.error ?? 'Verification failed');
+        setCodeInput('');
+        return;
+      }
+      if (data.signedIn) {
+        setAuthed(true);
+        setSignedInEmail(data.email ?? emailInput.trim().toLowerCase());
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Verification failed');
+    } finally {
+      setVerifyingCode(false);
     }
   }
 
@@ -457,34 +487,66 @@ export function Dashboard() {
             </p>
 
             {verificationSent ? (
-              <div className="mt-6 rounded-xl border border-dex-border bg-dex-bg p-4">
-                <p className="font-medium text-dex-fg">
-                  {devVerifyUrl ? 'Open your sign-in link' : 'Check your email'}
-                </p>
+              <div className="mt-6 rounded-xl border border-dex-border bg-dex-bg p-5">
+                <p className="font-medium text-dex-fg">Check your email</p>
                 <p className="mt-1.5 text-sm text-dex-muted">
-                  {devVerifyUrl
-                    ? 'Click the link below to finish signing in.'
-                    : `If ${emailInput || 'that address'} is allowed, a sign-in link is on the way.`}
+                  We sent a 6-digit code to{' '}
+                  <span className="font-medium text-dex-fg">{emailInput}</span>. Enter it here, or
+                  click the button in the email.
                 </p>
+                <input
+                  value={codeInput}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+                    setCodeInput(digits);
+                    if (digits.length === 6) void submitCode(digits);
+                  }}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="••••••"
+                  aria-label="6-digit verification code"
+                  autoFocus
+                  disabled={verifyingCode}
+                  className="mt-4 w-full rounded-xl border border-dex-border bg-dex-bg-elevated px-4 py-3 text-center font-mono text-2xl font-semibold tracking-[0.6em] text-dex-fg outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25 disabled:opacity-60"
+                />
+                {verifyingCode ? (
+                  <p className="mt-3 flex items-center justify-center gap-2 text-sm text-dex-muted">
+                    <Spinner className="text-dex-accent" /> Verifying…
+                  </p>
+                ) : null}
                 {devVerifyUrl ? (
                   <a
-                    className="mt-3 inline-block rounded-lg bg-dex-accent px-4 py-2 text-sm font-medium text-white transition hover:brightness-110"
+                    className="mt-3 block text-center text-sm text-dex-accent hover:underline"
                     href={devVerifyUrl}
                   >
-                    Continue to DEX Sourcing
+                    Local dev: sign in with one click
                   </a>
                 ) : null}
-                <button
-                  type="button"
-                  className="mt-3 block text-sm text-dex-accent hover:underline"
-                  onClick={() => {
-                    setVerificationSent(false);
-                    setDevVerifyUrl(null);
-                    setError(null);
-                  }}
-                >
-                  Use a different email
-                </button>
+                <div className="mt-4 flex items-center justify-between text-sm">
+                  <button
+                    type="button"
+                    className="text-dex-accent hover:underline"
+                    disabled={sendingLink}
+                    onClick={() => {
+                      setCodeInput('');
+                      void signIn();
+                    }}
+                  >
+                    {sendingLink ? 'Sending…' : 'Resend code'}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-dex-muted hover:text-dex-fg hover:underline"
+                    onClick={() => {
+                      setVerificationSent(false);
+                      setDevVerifyUrl(null);
+                      setCodeInput('');
+                      setError(null);
+                    }}
+                  >
+                    Use a different email
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={(e) => void signIn(e)} className="mt-6 space-y-4">

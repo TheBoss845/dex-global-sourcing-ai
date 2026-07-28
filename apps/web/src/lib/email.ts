@@ -62,9 +62,59 @@ function friendlyResendError(status: number, body: string): string {
     : `Could not send email via Resend (HTTP ${status}).`;
 }
 
+function verificationEmailHtml(input: { verifyUrl: string; code: string }): string {
+  const digits = input.code
+    .split('')
+    .map(
+      (d) =>
+        `<td style="width:44px;height:56px;text-align:center;font-size:26px;font-weight:700;color:#0a1f33;background:#f2f5f9;border:1px solid #d7dfe9;border-radius:10px;font-family:'Segoe UI',Helvetica,Arial,sans-serif;">${d}</td><td style="width:8px;"></td>`,
+    )
+    .join('');
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#eef2f7;font-family:'Segoe UI',Helvetica,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f7;padding:32px 16px;">
+      <tr><td align="center">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;">
+          <tr>
+            <td style="background:linear-gradient(135deg,#1d5bd8,#0a1f33);border-radius:16px 16px 0 0;padding:28px 32px;">
+              <p style="margin:0;color:#9db9e8;font-size:11px;letter-spacing:3px;text-transform:uppercase;font-weight:600;">Data Exchange Corporation</p>
+              <p style="margin:6px 0 0;color:#ffffff;font-size:20px;font-weight:700;">DEX Global Sourcing Assistant</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#ffffff;border-radius:0 0 16px 16px;padding:32px;">
+              <p style="margin:0;color:#14212e;font-size:16px;font-weight:600;">Confirm your sign-in</p>
+              <p style="margin:10px 0 0;color:#5d6d7e;font-size:14px;line-height:1.6;">
+                Enter this verification code in the app:
+              </p>
+              <table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px auto;"><tr>${digits}</tr></table>
+              <p style="margin:0;color:#5d6d7e;font-size:14px;line-height:1.6;text-align:center;">or</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:16px 0 4px;">
+                <a href="${input.verifyUrl}" style="display:inline-block;background:#1d5bd8;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 32px;border-radius:10px;">Sign in with one click</a>
+              </td></tr></table>
+              <p style="margin:20px 0 0;color:#8b9aab;font-size:12px;line-height:1.6;">
+                This code and link expire in 15 minutes and can be used once.
+                If you didn't request this, you can safely ignore this email.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 8px;text-align:center;">
+              <p style="margin:0;color:#8b9aab;font-size:11px;">© ${new Date().getFullYear()} Data Exchange Corporation (DEX) · Global Sourcing Assistant</p>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+}
+
 export async function sendVerificationEmail(input: {
   to: string;
   verifyUrl: string;
+  code: string;
 }): Promise<void> {
   const apiKey = resendApiKey();
   const from = emailFrom();
@@ -84,13 +134,9 @@ export async function sendVerificationEmail(input: {
     body: JSON.stringify({
       from,
       to: [input.to],
-      subject: 'Sign in to the DEX Global Sourcing Assistant',
-      html: `
-        <p>Use this link to sign in to the Data Exchange Corporation (DEX) Global Sourcing Assistant:</p>
-        <p><a href="${input.verifyUrl}">Verify my email and sign in</a></p>
-        <p>This link expires in 15 minutes. If you did not request it, ignore this email.</p>
-      `,
-      text: `Sign in to the DEX Global Sourcing Assistant:\n${input.verifyUrl}\n\nThis link expires in 15 minutes.`,
+      subject: `${input.code} is your DEX sign-in code`,
+      html: verificationEmailHtml(input),
+      text: `Your DEX Global Sourcing sign-in code: ${input.code}\n\nOr sign in with this link:\n${input.verifyUrl}\n\nThis code expires in 15 minutes.`,
     }),
   });
 

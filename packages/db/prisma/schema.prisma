@@ -356,6 +356,8 @@ model EmailVerificationToken {
   id        String   @id @default(cuid())
   email     String
   token     String   @unique
+  codeHash  String?  @map("code_hash")
+  attempts  Int      @default(0)
   expiresAt DateTime @map("expires_at")
   usedAt    DateTime? @map("used_at")
   createdAt DateTime @default(now()) @map("created_at")

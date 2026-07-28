@@ -71,8 +71,10 @@ DEX_EXTRA_ALLOWED_EMAILS=lmfelcher@gmail.com
 
 ## Notes
 
-- **Sign-in is instant** for allowed emails: any `@dex.com` address plus `DEX_EXTRA_ALLOWED_EMAILS` (Blueprint includes `lmfelcher@gmail.com`).
-- Want emailed magic links instead? Set `AUTH_REQUIRE_EMAIL_VERIFICATION=true` plus `RESEND_API_KEY`, `EMAIL_FROM`, `APP_BASE_URL`.
+- **Allowed emails:** any `@dex.com` address plus `DEX_EXTRA_ALLOWED_EMAILS` (Blueprint includes `lmfelcher@gmail.com`).
+- **Real email verification** (6-digit code + one-click link) turns on automatically when you set both `RESEND_API_KEY` and `EMAIL_FROM` on **dex-web**. Without them, allowed emails sign in instantly.
+  - Quick test: `EMAIL_FROM` = `DEX <onboarding@resend.dev>` — Resend's test sender can only email **the address that owns the Resend account**.
+  - Production: verify a domain at [resend.com/domains](https://resend.com/domains) and use `DEX Sourcing <noreply@your-domain.com>`.
 - Free/starter plans may sleep; first request can be slow.
 - After changing env vars, trigger a **Manual Deploy**.
 - Do **not** put API keys in GitHub — only in Render env vars.
