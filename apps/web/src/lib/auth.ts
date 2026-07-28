@@ -44,16 +44,16 @@ export function emailDomain(email: string): string {
   return normalized.slice(at + 1);
 }
 
-/** Only DEX company emails are allowed — never Gmail/Yahoo/etc. */
+/** DEX company emails (@dex.com / *.dex.com). */
 export function isDexEmail(email: string): boolean {
   const domain = emailDomain(email);
   return domain === 'dex.com' || domain.endsWith('.dex.com');
 }
 
 /**
- * Optional extra allowlist inside @dex.com.
+ * Optional restrictor for @dex.com addresses only.
  * Examples: "alice@dex.com,bob@dex.com" or leave empty to allow any @dex.com email.
- * Non-dex domains in this list are ignored.
+ * Non-dex domains in this list are ignored (use DEX_EXTRA_ALLOWED_EMAILS for those).
  */
 export function allowedEmails(): string[] {
   return (process.env.DEX_ALLOWED_EMAILS ?? '')
@@ -63,9 +63,31 @@ export function allowedEmails(): string[] {
     .filter((entry) => entry === '@dex.com' || entry.endsWith('@dex.com') || entry.endsWith('.dex.com'));
 }
 
+/**
+ * Explicit non-DEX (or additional) emails that may sign in.
+ * Example: DEX_EXTRA_ALLOWED_EMAILS=lmfelcher@gmail.com
+ * Always includes lmfelcher@gmail.com as the owner override.
+ */
+export function extraAllowedEmails(): string[] {
+  const fromEnv = (process.env.DEX_EXTRA_ALLOWED_EMAILS ?? '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email.includes('@'));
+  const owner = 'lmfelcher@gmail.com';
+  return fromEnv.includes(owner) ? fromEnv : [...fromEnv, owner];
+}
+
+export function isExtraAllowedEmail(email: string): boolean {
+  return extraAllowedEmails().includes(normalizeEmail(email));
+}
+
+/** @dex.com (optionally restricted) OR an explicit extra-allowed address. */
 export function isAllowedEmail(email: string): boolean {
   const normalized = normalizeEmail(email);
   if (!normalized.includes('@')) return false;
+
+  if (isExtraAllowedEmail(normalized)) return true;
+
   if (!isDexEmail(normalized)) return false;
 
   const allow = allowedEmails();

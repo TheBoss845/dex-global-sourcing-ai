@@ -49,6 +49,8 @@ services:
         sync: false
       - key: APP_BASE_URL
         sync: false
+      - key: DEX_EXTRA_ALLOWED_EMAILS
+        value: lmfelcher@gmail.com
 
   - type: worker
     name: dex-worker

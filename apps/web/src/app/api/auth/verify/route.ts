@@ -1,12 +1,7 @@
 import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { prisma } from '@dex/db';
-import {
-  createSessionToken,
-  isAllowedEmail,
-  isDexEmail,
-  sessionSecret,
-} from '@/lib/auth';
+import { createSessionToken, isAllowedEmail, sessionSecret } from '@/lib/auth';
 import { appBaseUrl } from '@/lib/email';
 
 function hashToken(token: string): string {
@@ -57,15 +52,15 @@ export async function GET(request: Request) {
     );
   }
 
-  // Reject verification for anything other than @dex.com, even if token exists.
-  if (!isDexEmail(record.email) || !isAllowedEmail(record.email)) {
+  // Reject verification for addresses outside the allow policy, even if token exists.
+  if (!isAllowedEmail(record.email)) {
     await prisma.emailVerificationToken.update({
       where: { id: record.id },
       data: { usedAt: new Date() },
     });
     return htmlPage(
       'Verification rejected',
-      `<h1>Email not allowed</h1><p>Only <strong>@dex.com</strong> addresses can sign in.</p><p><a href="${home}">Back to DEX</a></p>`,
+      `<h1>Email not allowed</h1><p>Only <strong>@dex.com</strong> emails and explicitly allowed addresses can sign in.</p><p><a href="${home}">Back to DEX</a></p>`,
     );
   }
 

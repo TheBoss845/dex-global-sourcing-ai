@@ -37,7 +37,7 @@ export async function sendVerificationEmail(input: {
       subject: 'Sign in to DEX Global Sourcing Assistant',
       html: `
         <p>Use this link to sign in to the DEX Global Sourcing Assistant:</p>
-        <p><a href="${input.verifyUrl}">Verify my @dex.com email</a></p>
+        <p><a href="${input.verifyUrl}">Verify my email and sign in</a></p>
         <p>This link expires in 15 minutes. If you did not request it, ignore this email.</p>
       `,
       text: `Sign in to DEX Global Sourcing Assistant:\n${input.verifyUrl}\n\nThis link expires in 15 minutes.`,

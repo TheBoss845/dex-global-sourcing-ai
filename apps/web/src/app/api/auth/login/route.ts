@@ -1,13 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { prisma } from '@dex/db';
-import {
-  authConfigured,
-  authRequired,
-  isAllowedEmail,
-  isDexEmail,
-  normalizeEmail,
-} from '@/lib/auth';
+import { authConfigured, authRequired, isAllowedEmail, normalizeEmail } from '@/lib/auth';
 import { appBaseUrl, emailSendingConfigured, sendVerificationEmail } from '@/lib/email';
 
 function hashToken(token: string): string {
@@ -35,20 +29,15 @@ export async function POST(request: Request) {
 
   const email = normalizeEmail(body.email ?? '');
   if (!email || !email.includes('@')) {
-    return NextResponse.json({ error: 'Enter a valid @dex.com work email' }, { status: 400 });
-  }
-
-  // Hard reject anything that is not @dex.com before sending mail.
-  if (!isDexEmail(email)) {
-    return NextResponse.json(
-      { error: 'Only @dex.com email addresses can sign in. Gmail and other domains are blocked.' },
-      { status: 401 },
-    );
+    return NextResponse.json({ error: 'Enter a valid email address' }, { status: 400 });
   }
 
   if (!isAllowedEmail(email)) {
     return NextResponse.json(
-      { error: 'That @dex.com email is not authorized for this assistant' },
+      {
+        error:
+          'Only @dex.com emails (and explicitly allowed addresses) can sign in.',
+      },
       { status: 401 },
     );
   }
@@ -101,7 +90,7 @@ export async function POST(request: Request) {
     authRequired: true,
     verificationSent: emailSendingConfigured(),
     message: emailSendingConfigured()
-      ? 'Check your @dex.com inbox for a verification link.'
+      ? 'Check your inbox for a verification link.'
       : 'Email provider not configured; use the local verification link.',
   };
 

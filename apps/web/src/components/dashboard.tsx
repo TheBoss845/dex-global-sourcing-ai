@@ -255,16 +255,16 @@ export function Dashboard() {
           Global Sourcing Assistant
         </h1>
         <p className="mt-3 text-sm text-dex-muted">
-          Enter your <span className="font-medium text-dex-fg">@dex.com</span> email. We’ll send a
-          verification link. Gmail and other domains are blocked.
+          Enter your <span className="font-medium text-dex-fg">@dex.com</span> work email (or an
+          allowed account). We’ll send a verification link.
         </p>
 
         {verificationSent ? (
           <div className="mt-6 rounded-xl border border-dex-border bg-dex-bg-elevated/90 p-4">
             <p className="font-medium text-dex-fg">Check your email</p>
             <p className="mt-2 text-sm text-dex-muted">
-              If <span className="font-medium">{emailInput || 'that address'}</span> is a valid
-              @dex.com inbox, a sign-in link is on the way. Open it to finish signing in.
+              If <span className="font-medium">{emailInput || 'that address'}</span> is allowed, a
+              sign-in link is on the way. Open it to finish signing in.
             </p>
             {devVerifyUrl ? (
               <p className="mt-3 break-all text-sm">
@@ -289,7 +289,7 @@ export function Dashboard() {
         ) : (
           <form onSubmit={(e) => void signIn(e)} className="mt-6 space-y-3">
             <label className="block text-sm font-medium" htmlFor="work-email">
-              DEX work email
+              Email
             </label>
             <input
               id="work-email"
