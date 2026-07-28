@@ -1,10 +1,10 @@
 # DEX Global Sourcing Assistant — Architecture
 
-**Status:** AMENDED — awaiting approval to resume implementation  
+**Status:** Implemented (v1.2 URL-first)  
 **Version:** 1.2  
 **Supersedes:** 1.1 (SupplyItNow-or-MPN input model)
 
-This document is the source of truth after approval. Implementation must follow it.
+This document is the source of truth for the URL-first product workflow.
 
 ---
 

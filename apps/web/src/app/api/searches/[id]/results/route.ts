@@ -11,6 +11,6 @@ export async function GET(request: Request, { params }: Params) {
   const order = (url.searchParams.get('order') as 'asc' | 'desc') || 'asc';
   const includePossible = url.searchParams.get('includePossible') === 'true';
 
-  const offers = await listJobOffers(id, { q, sort, order, includePossible });
+  const offers = await listJobOffers(id, { q, sort, order, includePossible, limit: 10 });
   return NextResponse.json({ offers });
 }

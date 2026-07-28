@@ -15,16 +15,14 @@ export const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional().default(''),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
   TAVILY_API_KEY: z.string().optional().default(''),
-  SUPPLYITNOW_ALLOWED_HOSTS: z
-    .string()
-    .default('www.supplyitnow.com,supplyitnow.com')
-    .transform((value) =>
-      value
-        .split(',')
-        .map((host) => host.trim().toLowerCase())
-        .filter(Boolean),
-    ),
   WORKER_QUEUES: z.string().optional(),
+  RESULT_LIMIT: z
+    .string()
+    .optional()
+    .transform((value) => {
+      const n = Number(value ?? '10');
+      return Number.isFinite(n) && n > 0 ? Math.min(25, Math.floor(n)) : 10;
+    }),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

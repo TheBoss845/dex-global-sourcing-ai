@@ -30,7 +30,7 @@ const pipelineEnv: PipelineEnv = {
   openaiApiKey: env.OPENAI_API_KEY,
   openaiModel: env.OPENAI_MODEL,
   artifactLocalPath: env.ARTIFACT_LOCAL_PATH,
-  supplyItNowHosts: env.SUPPLYITNOW_ALLOWED_HOSTS,
+  resultLimit: env.RESULT_LIMIT,
 };
 
 function selectedQueues(): string[] {
@@ -64,105 +64,34 @@ function startWorkers() {
   console.log(`[dex-worker] queues=${queues.join(',')}`);
   console.log(`[dex-worker] aiEnabled=${pipelineEnv.aiEnabled}`);
 
-  if (queues.includes('jobs-resolve')) {
+  const handlers: Record<string, (jobId: string) => Promise<void>> = {
+    'jobs-resolve': (jobId) => runResolveStage(jobId, pipelineEnv),
+    'jobs-discover': (jobId) => runDiscoverStage(jobId, pipelineEnv),
+    'jobs-extract': (jobId) => runExtractStage(jobId, pipelineEnv),
+    'jobs-normalize': (jobId) => runNormalizeStage(jobId, pipelineEnv),
+    'jobs-enrich': (jobId) => runEnrichStage(jobId, pipelineEnv),
+    'jobs-knowledge': (jobId) => runKnowledgeStage(jobId),
+  };
+
+  for (const queueName of queues) {
+    const handler = handlers[queueName];
+    if (!handler) continue;
     workers.push(
       new Worker(
-        'jobs-resolve',
+        queueName,
         async (job) => {
           const jobId = String(job.data.jobId);
           try {
-            await runResolveStage(jobId, pipelineEnv);
+            await handler(jobId);
           } catch (error) {
             await handleFailure(jobId, error);
             throw error;
           }
         },
-        { connection, concurrency: 2 },
-      ),
-    );
-  }
-
-  if (queues.includes('jobs-discover')) {
-    workers.push(
-      new Worker(
-        'jobs-discover',
-        async (job) => {
-          const jobId = String(job.data.jobId);
-          try {
-            await runDiscoverStage(jobId, pipelineEnv);
-          } catch (error) {
-            await handleFailure(jobId, error);
-            throw error;
-          }
+        {
+          connection,
+          concurrency: queueName === 'jobs-extract' || queueName === 'jobs-enrich' ? 1 : 2,
         },
-        { connection, concurrency: 2 },
-      ),
-    );
-  }
-
-  if (queues.includes('jobs-extract')) {
-    workers.push(
-      new Worker(
-        'jobs-extract',
-        async (job) => {
-          const jobId = String(job.data.jobId);
-          try {
-            await runExtractStage(jobId, pipelineEnv);
-          } catch (error) {
-            await handleFailure(jobId, error);
-            throw error;
-          }
-        },
-        { connection, concurrency: 1 },
-      ),
-    );
-  }
-
-  if (queues.includes('jobs-normalize')) {
-    workers.push(
-      new Worker(
-        'jobs-normalize',
-        async (job) => {
-          const jobId = String(job.data.jobId);
-          try {
-            await runNormalizeStage(jobId, pipelineEnv);
-          } catch (error) {
-            await handleFailure(jobId, error);
-            throw error;
-          }
-        },
-        { connection, concurrency: 2 },
-      ),
-    );
-  }
-
-  if (queues.includes('jobs-enrich')) {
-    workers.push(
-      new Worker(
-        'jobs-enrich',
-        async (job) => {
-          const jobId = String(job.data.jobId);
-          try {
-            await runEnrichStage(jobId, pipelineEnv);
-          } catch (error) {
-            await handleFailure(jobId, error);
-            throw error;
-          }
-        },
-        { connection, concurrency: 1 },
-      ),
-    );
-  }
-
-  if (queues.includes('jobs-knowledge')) {
-    workers.push(
-      new Worker(
-        'jobs-knowledge',
-        async (job) => {
-          const jobId = String(job.data.jobId);
-          await runKnowledgeStage(jobId);
-        },
-        { connection, concurrency: 2 },
       ),
     );
   }

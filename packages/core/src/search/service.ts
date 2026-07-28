@@ -8,13 +8,11 @@ import {
 import { Queue } from 'bullmq';
 import { DEFAULT_JOB_BUDGET, type JobBudget } from '../budget.js';
 import { AppError, ErrorCodes } from '../errors.js';
-import { normalizeMpn } from '../mpn.js';
-import { assertSafeUrl } from '../security/url.js';
+import { assertSafePublicUrl } from '../security/url.js';
 import type { CreateSearchInput } from './schema.js';
 
 export type CreateSearchContext = {
   redisUrl: string;
-  supplyItNowHosts: string[];
   orgId?: string;
 };
 
@@ -63,12 +61,7 @@ export async function createSearchJob(
   input: CreateSearchInput,
   ctx: CreateSearchContext,
 ): Promise<SearchJob> {
-  if (input.url) {
-    assertSafeUrl(input.url, {
-      allowedHosts: ctx.supplyItNowHosts,
-      requireHttps: true,
-    });
-  }
+  await assertSafePublicUrl(input.url, { allowHttp: true });
 
   const traceId = randomUUID();
   const budget: JobBudget = { ...DEFAULT_JOB_BUDGET };
@@ -76,19 +69,21 @@ export async function createSearchJob(
   const job = await prisma.searchJob.create({
     data: {
       orgId: ctx.orgId,
-      inputType: input.mpn ? 'MPN' : 'URL',
-      inputValue: input.mpn ? input.mpn.trim() : input.url!,
+      inputType: 'URL',
+      inputValue: input.url.trim(),
+      rawSourceUrl: input.url.trim(),
       forceRefresh: input.forceRefresh ?? false,
       status: 'queued',
+      resolveStatus: 'pending',
       traceId,
       budgetJson: budget,
       progressJson: { stage: 'queued', percent: 0 },
     },
   });
 
-  await appendJobEvent(job.id, 'Search job created', {
+  await appendJobEvent(job.id, 'Search job created from product-page URL', {
     stage: 'queued',
-    data: { inputType: job.inputType, forceRefresh: job.forceRefresh },
+    data: { forceRefresh: job.forceRefresh },
   });
 
   const queue = new Queue('jobs-resolve', { connection: redisConnection(ctx.redisUrl) });
@@ -141,11 +136,13 @@ export async function listJobOffers(
     sort?: 'priceUsd' | 'supplier' | 'country' | 'extractedAt';
     order?: 'asc' | 'desc';
     includePossible?: boolean;
+    limit?: number;
   },
 ) {
   const order = options?.order ?? 'asc';
   const sort = options?.sort ?? 'priceUsd';
   const q = options?.q?.trim();
+  const limit = options?.limit ?? 10;
 
   const offers = await prisma.offer.findMany({
     where: {
@@ -157,6 +154,7 @@ export async function listJobOffers(
               { mpn: { contains: q, mode: 'insensitive' } },
               { manufacturer: { contains: q, mode: 'insensitive' } },
               { productUrl: { contains: q, mode: 'insensitive' } },
+              { supplierPartNumber: { contains: q, mode: 'insensitive' } },
               { supplier: { name: { contains: q, mode: 'insensitive' } } },
               { supplier: { domain: { contains: q, mode: 'insensitive' } } },
               { supplier: { country: { contains: q, mode: 'insensitive' } } },
@@ -173,6 +171,7 @@ export async function listJobOffers(
           : sort === 'extractedAt'
             ? { extractedAt: order }
             : { priceUsd: { sort: order, nulls: 'last' } },
+    take: limit,
   });
 
   return offers;
@@ -190,8 +189,4 @@ export async function cancelSearchJob(jobId: string) {
   });
   await appendJobEvent(jobId, 'Job cancelled', { stage: 'cancelled', level: 'warn' });
   return getSearchJob(jobId);
-}
-
-export function suggestNormalizedFromInput(inputValue: string): string {
-  return normalizeMpn(inputValue);
 }

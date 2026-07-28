@@ -10,10 +10,7 @@ describe('loadEnv', () => {
       AI_ENABLED: 'true',
     });
     assert.equal(env.AI_ENABLED, true);
-    assert.deepEqual(env.SUPPLYITNOW_ALLOWED_HOSTS, [
-      'www.supplyitnow.com',
-      'supplyitnow.com',
-    ]);
+    assert.equal(env.RESULT_LIMIT, 10);
   });
 
   it('throws when DATABASE_URL missing', () => {

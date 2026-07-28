@@ -1,16 +1,8 @@
 import { z } from 'zod';
 
-export const createSearchSchema = z
-  .object({
-    mpn: z.string().trim().min(1).max(128).optional(),
-    url: z.string().trim().url().optional(),
-    forceRefresh: z.boolean().optional().default(false),
-  })
-  .refine((value) => Boolean(value.mpn || value.url), {
-    message: 'Either mpn or url is required',
-  })
-  .refine((value) => !(value.mpn && value.url), {
-    message: 'Provide either mpn or url, not both',
-  });
+export const createSearchSchema = z.object({
+  url: z.string().trim().url('A valid product-page URL is required'),
+  forceRefresh: z.boolean().optional().default(false),
+});
 
 export type CreateSearchInput = z.infer<typeof createSearchSchema>;

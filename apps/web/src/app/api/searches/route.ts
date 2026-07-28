@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     const parsed = createSearchSchema.safeParse(json);
     if (!parsed.success) {
       return NextResponse.json(
-        { error: parsed.error.issues[0]?.message ?? 'Invalid request' },
+        { error: parsed.error.issues[0]?.message ?? 'A valid product-page URL is required' },
         { status: 400 },
       );
     }
@@ -16,13 +16,16 @@ export async function POST(request: Request) {
     const env = getServerEnv();
     const job = await createSearchJob(parsed.data, {
       redisUrl: env.REDIS_URL,
-      supplyItNowHosts: env.SUPPLYITNOW_ALLOWED_HOSTS,
     });
 
     return NextResponse.json({ job }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create search';
-    const status = error instanceof AppError && error.code === 'SSRF_BLOCKED' ? 400 : 500;
+    const status =
+      error instanceof AppError &&
+      (error.code === 'SSRF_BLOCKED' || error.code === 'VALIDATION_ERROR')
+        ? 400
+        : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

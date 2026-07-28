@@ -14,7 +14,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src --max-warnings=0",
-    "test": "node --import tsx --test src/config/env.test.ts src/mpn.test.ts src/security/url.test.ts"
+    "test": "node --import tsx --test src/config/env.test.ts src/mpn.test.ts src/security/url.test.ts src/identity/identify-mpn.test.ts"
   },
   "dependencies": {
     "@dex/ai": "workspace:*",

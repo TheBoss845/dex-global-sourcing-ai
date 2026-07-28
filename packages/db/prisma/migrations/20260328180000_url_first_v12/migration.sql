@@ -2,16 +2,22 @@
 CREATE SCHEMA IF NOT EXISTS "public";
 
 -- CreateEnum
-CREATE TYPE "SearchInputType" AS ENUM ('MPN', 'URL');
+CREATE TYPE "SearchInputType" AS ENUM ('URL', 'MPN');
 
 -- CreateEnum
-CREATE TYPE "SearchJobStatus" AS ENUM ('queued', 'resolving', 'discovering', 'extracting', 'normalizing', 'enriching', 'completed', 'completed_with_errors', 'failed', 'cancelled');
+CREATE TYPE "SearchJobStatus" AS ENUM ('queued', 'validating', 'fetching_source', 'extracting_identity', 'identifying_mpn', 'discovering', 'extracting', 'normalizing', 'enriching', 'completed', 'completed_with_errors', 'failed', 'cancelled');
+
+-- CreateEnum
+CREATE TYPE "ResolveStatus" AS ENUM ('pending', 'identified', 'failed');
 
 -- CreateEnum
 CREATE TYPE "CandidateStatus" AS ENUM ('pending', 'extracting', 'extracted', 'rejected', 'failed');
 
 -- CreateEnum
 CREATE TYPE "SourceType" AS ENUM ('api', 'search', 'scrape', 'cache', 'knowledge');
+
+-- CreateEnum
+CREATE TYPE "SourceFetchMethod" AS ENUM ('http', 'browser');
 
 -- CreateTable
 CREATE TABLE "organizations" (
@@ -27,10 +33,17 @@ CREATE TABLE "organizations" (
 CREATE TABLE "parts" (
     "id" TEXT NOT NULL,
     "raw_mpn" TEXT NOT NULL,
+    "original_mpn" TEXT NOT NULL,
     "normalized_mpn" TEXT NOT NULL,
     "manufacturer" TEXT,
+    "brand" TEXT,
+    "model_number" TEXT,
+    "supplier_sku" TEXT,
+    "title" TEXT,
     "description_raw" TEXT,
     "description_clean" TEXT,
+    "specifications_json" JSONB,
+    "identification_evidence" JSONB,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
@@ -43,6 +56,14 @@ CREATE TABLE "search_jobs" (
     "org_id" TEXT,
     "input_type" "SearchInputType" NOT NULL,
     "input_value" TEXT NOT NULL,
+    "raw_source_url" TEXT,
+    "final_source_url" TEXT,
+    "source_fetch_method" "SourceFetchMethod",
+    "source_artifact_hash" TEXT,
+    "source_artifact_key" TEXT,
+    "resolve_status" "ResolveStatus" NOT NULL DEFAULT 'pending',
+    "identification_confidence" DOUBLE PRECISION,
+    "identification_method" TEXT,
     "force_refresh" BOOLEAN NOT NULL DEFAULT false,
     "status" "SearchJobStatus" NOT NULL DEFAULT 'queued',
     "trace_id" TEXT NOT NULL,
@@ -85,6 +106,7 @@ CREATE TABLE "job_candidates" (
     "source_type" "SourceType" NOT NULL,
     "score" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "status" "CandidateStatus" NOT NULL DEFAULT 'pending',
+    "rejection_reason" TEXT,
     "error_message" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
@@ -121,17 +143,22 @@ CREATE TABLE "offers" (
     "supplier_id" TEXT NOT NULL,
     "mpn" TEXT NOT NULL,
     "manufacturer" TEXT,
+    "supplier_part_number" TEXT,
     "product_url" TEXT NOT NULL,
     "price" DECIMAL(18,6),
     "currency" TEXT,
     "price_usd" DECIMAL(18,6),
+    "price_breaks_json" JSONB,
     "stock_quantity" INTEGER,
+    "availability" TEXT,
     "lead_time" TEXT,
     "moq" INTEGER,
+    "condition" TEXT,
     "source_type" "SourceType" NOT NULL,
     "match_confidence" DOUBLE PRECISION NOT NULL DEFAULT 1,
     "possible_match" BOOLEAN NOT NULL DEFAULT false,
     "risk_flags" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "reliability_score" DOUBLE PRECISION,
     "description" TEXT,
     "artifact_hash" TEXT,
     "artifact_key" TEXT,

@@ -8,13 +8,16 @@ datasource db {
 }
 
 enum SearchInputType {
-  MPN
   URL
+  MPN
 }
 
 enum SearchJobStatus {
   queued
-  resolving
+  validating
+  fetching_source
+  extracting_identity
+  identifying_mpn
   discovering
   extracting
   normalizing
@@ -23,6 +26,12 @@ enum SearchJobStatus {
   completed_with_errors
   failed
   cancelled
+}
+
+enum ResolveStatus {
+  pending
+  identified
+  failed
 }
 
 enum CandidateStatus {
@@ -41,6 +50,11 @@ enum SourceType {
   knowledge
 }
 
+enum SourceFetchMethod {
+  http
+  browser
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String
@@ -55,14 +69,21 @@ model Organization {
 }
 
 model Part {
-  id               String   @id @default(cuid())
-  rawMpn           String   @map("raw_mpn")
-  normalizedMpn    String   @map("normalized_mpn")
-  manufacturer     String?
-  descriptionRaw   String?  @map("description_raw")
-  descriptionClean String?  @map("description_clean")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id                   String   @id @default(cuid())
+  rawMpn               String   @map("raw_mpn")
+  originalMpn          String   @map("original_mpn")
+  normalizedMpn        String   @map("normalized_mpn")
+  manufacturer         String?
+  brand                String?
+  modelNumber          String?  @map("model_number")
+  supplierSku          String?  @map("supplier_sku")
+  title                String?
+  descriptionRaw       String?  @map("description_raw")
+  descriptionClean     String?  @map("description_clean")
+  specificationsJson   Json?    @map("specifications_json")
+  identificationEvidence Json?  @map("identification_evidence")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
   searchJobs SearchJob[]
 
@@ -71,24 +92,32 @@ model Part {
 }
 
 model SearchJob {
-  id              String          @id @default(cuid())
-  orgId           String?         @map("org_id")
-  inputType       SearchInputType @map("input_type")
-  inputValue      String          @map("input_value")
-  forceRefresh    Boolean         @default(false) @map("force_refresh")
-  status          SearchJobStatus @default(queued)
-  traceId         String          @map("trace_id")
-  partId          String?         @map("part_id")
-  budgetJson      Json            @map("budget_json")
-  progressJson    Json?           @map("progress_json")
-  summaryJson     Json?           @map("summary_json")
-  errorCode       String?         @map("error_code")
-  errorMessage    String?         @map("error_message")
-  offerCount      Int             @default(0) @map("offer_count")
-  startedAt       DateTime?       @map("started_at")
-  finishedAt      DateTime?       @map("finished_at")
-  createdAt       DateTime        @default(now()) @map("created_at")
-  updatedAt       DateTime        @updatedAt @map("updated_at")
+  id                       String            @id @default(cuid())
+  orgId                    String?           @map("org_id")
+  inputType                SearchInputType   @map("input_type")
+  inputValue               String            @map("input_value")
+  rawSourceUrl             String?           @map("raw_source_url")
+  finalSourceUrl           String?           @map("final_source_url")
+  sourceFetchMethod        SourceFetchMethod? @map("source_fetch_method")
+  sourceArtifactHash       String?           @map("source_artifact_hash")
+  sourceArtifactKey        String?           @map("source_artifact_key")
+  resolveStatus            ResolveStatus     @default(pending) @map("resolve_status")
+  identificationConfidence Float?            @map("identification_confidence")
+  identificationMethod     String?           @map("identification_method")
+  forceRefresh             Boolean           @default(false) @map("force_refresh")
+  status                   SearchJobStatus   @default(queued)
+  traceId                  String            @map("trace_id")
+  partId                   String?           @map("part_id")
+  budgetJson               Json              @map("budget_json")
+  progressJson             Json?             @map("progress_json")
+  summaryJson              Json?             @map("summary_json")
+  errorCode                String?           @map("error_code")
+  errorMessage             String?           @map("error_message")
+  offerCount               Int               @default(0) @map("offer_count")
+  startedAt                DateTime?         @map("started_at")
+  finishedAt               DateTime?         @map("finished_at")
+  createdAt                DateTime          @default(now()) @map("created_at")
+  updatedAt                DateTime          @updatedAt @map("updated_at")
 
   org        Organization?  @relation(fields: [orgId], references: [id])
   part       Part?          @relation(fields: [partId], references: [id])
@@ -118,18 +147,19 @@ model JobEvent {
 }
 
 model JobCandidate {
-  id           String          @id @default(cuid())
-  jobId        String          @map("job_id")
-  url          String
-  domain       String
-  title        String?
-  snippet      String?
-  sourceType   SourceType      @map("source_type")
-  score        Float           @default(0)
-  status       CandidateStatus @default(pending)
-  errorMessage String?         @map("error_message")
-  createdAt    DateTime        @default(now()) @map("created_at")
-  updatedAt    DateTime        @updatedAt @map("updated_at")
+  id              String          @id @default(cuid())
+  jobId           String          @map("job_id")
+  url             String
+  domain          String
+  title           String?
+  snippet         String?
+  sourceType      SourceType      @map("source_type")
+  score           Float           @default(0)
+  status          CandidateStatus @default(pending)
+  rejectionReason String?         @map("rejection_reason")
+  errorMessage    String?         @map("error_message")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
 
   job SearchJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
@@ -168,28 +198,33 @@ model JobSupplier {
 }
 
 model Offer {
-  id              String     @id @default(cuid())
-  jobId           String     @map("job_id")
-  supplierId      String     @map("supplier_id")
-  mpn             String
-  manufacturer    String?
-  productUrl      String     @map("product_url")
-  price           Decimal?   @db.Decimal(18, 6)
-  currency        String?
-  priceUsd        Decimal?   @map("price_usd") @db.Decimal(18, 6)
-  stockQuantity   Int?       @map("stock_quantity")
-  leadTime        String?    @map("lead_time")
-  moq             Int?
-  sourceType      SourceType @map("source_type")
-  matchConfidence Float      @default(1) @map("match_confidence")
-  possibleMatch   Boolean    @default(false) @map("possible_match")
-  riskFlags       String[]   @default([]) @map("risk_flags")
-  description     String?
-  artifactHash    String?    @map("artifact_hash")
-  artifactKey     String?    @map("artifact_key")
-  extractedAt     DateTime   @default(now()) @map("extracted_at")
-  createdAt       DateTime   @default(now()) @map("created_at")
-  updatedAt       DateTime   @updatedAt @map("updated_at")
+  id                 String     @id @default(cuid())
+  jobId              String     @map("job_id")
+  supplierId         String     @map("supplier_id")
+  mpn                String
+  manufacturer       String?
+  supplierPartNumber String?    @map("supplier_part_number")
+  productUrl         String     @map("product_url")
+  price              Decimal?   @db.Decimal(18, 6)
+  currency           String?
+  priceUsd           Decimal?   @map("price_usd") @db.Decimal(18, 6)
+  priceBreaksJson    Json?      @map("price_breaks_json")
+  stockQuantity      Int?       @map("stock_quantity")
+  availability       String?
+  leadTime           String?    @map("lead_time")
+  moq                Int?
+  condition          String?
+  sourceType         SourceType @map("source_type")
+  matchConfidence    Float      @default(1) @map("match_confidence")
+  possibleMatch      Boolean    @default(false) @map("possible_match")
+  riskFlags          String[]   @default([]) @map("risk_flags")
+  reliabilityScore   Float?     @map("reliability_score")
+  description        String?
+  artifactHash       String?    @map("artifact_hash")
+  artifactKey        String?    @map("artifact_key")
+  extractedAt        DateTime   @default(now()) @map("extracted_at")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
 
   job      SearchJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
   supplier Supplier  @relation(fields: [supplierId], references: [id])
@@ -232,28 +267,26 @@ model ExchangeRate {
   @@map("exchange_rates")
 }
 
-/// Supplier Knowledge Base
 model SupplierProfile {
-  id                 String   @id @default(cuid())
-  orgId              String?  @map("org_id")
-  supplierId         String   @unique @map("supplier_id")
-  preferred          Boolean  @default(false)
-  countriesServed    String[] @default([]) @map("countries_served")
-  reliabilityScore   Float    @default(0.5) @map("reliability_score")
-  healthStatus       String   @default("unknown") @map("health_status")
-  successCount       Int      @default(0) @map("success_count")
-  failureCount       Int      @default(0) @map("failure_count")
-  searchFrequency    Int      @default(0) @map("search_frequency")
-  avgResponseQuality Float    @default(0) @map("avg_response_quality")
+  id                 String    @id @default(cuid())
+  orgId              String?   @map("org_id")
+  supplierId         String    @unique @map("supplier_id")
+  preferred          Boolean   @default(false)
+  countriesServed    String[]  @default([]) @map("countries_served")
+  reliabilityScore   Float     @default(0.5) @map("reliability_score")
+  healthStatus       String    @default("unknown") @map("health_status")
+  successCount       Int       @default(0) @map("success_count")
+  failureCount       Int       @default(0) @map("failure_count")
+  searchFrequency    Int       @default(0) @map("search_frequency")
+  avgResponseQuality Float     @default(0) @map("avg_response_quality")
   lastSuccessAt      DateTime? @map("last_success_at")
   lastFailureAt      DateTime? @map("last_failure_at")
-  scoringVersion     String   @default("v1") @map("scoring_version")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  scoringVersion     String    @default("v1") @map("scoring_version")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  org      Organization? @relation(fields: [orgId], references: [id])
-  supplier Supplier      @relation(fields: [supplierId], references: [id])
-
+  org           Organization?              @relation(fields: [orgId], references: [id])
+  supplier      Supplier                   @relation(fields: [supplierId], references: [id])
   manufacturers SupplierManufacturer[]
   mpnStats      SupplierMpnStat[]
   prices        SupplierPriceObservation[]
@@ -263,11 +296,11 @@ model SupplierProfile {
 }
 
 model SupplierManufacturer {
-  id        String   @id @default(cuid())
-  profileId String   @map("profile_id")
+  id           String   @id @default(cuid())
+  profileId    String   @map("profile_id")
   manufacturer String
-  hitCount  Int      @default(1) @map("hit_count")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  hitCount     Int      @default(1) @map("hit_count")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   profile SupplierProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
@@ -276,12 +309,12 @@ model SupplierManufacturer {
 }
 
 model SupplierMpnStat {
-  id            String   @id @default(cuid())
-  profileId     String   @map("profile_id")
-  normalizedMpn String   @map("normalized_mpn")
-  successCount  Int      @default(0) @map("success_count")
+  id            String    @id @default(cuid())
+  profileId     String    @map("profile_id")
+  normalizedMpn String    @map("normalized_mpn")
+  successCount  Int       @default(0) @map("success_count")
   lastSuccessAt DateTime? @map("last_success_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   profile SupplierProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
@@ -291,15 +324,15 @@ model SupplierMpnStat {
 }
 
 model SupplierPriceObservation {
-  id        String   @id @default(cuid())
-  profileId String   @map("profile_id")
-  normalizedMpn String @map("normalized_mpn")
-  price     Decimal  @db.Decimal(18, 6)
-  currency  String
-  priceUsd  Decimal? @map("price_usd") @db.Decimal(18, 6)
-  jobId     String?  @map("job_id")
-  observedAt DateTime @map("observed_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  id            String   @id @default(cuid())
+  profileId     String   @map("profile_id")
+  normalizedMpn String   @map("normalized_mpn")
+  price         Decimal  @db.Decimal(18, 6)
+  currency      String
+  priceUsd      Decimal? @map("price_usd") @db.Decimal(18, 6)
+  jobId         String?  @map("job_id")
+  observedAt    DateTime @map("observed_at")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   profile SupplierProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 

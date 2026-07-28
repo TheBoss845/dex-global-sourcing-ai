@@ -6,23 +6,26 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(request: Request, { params }: Params) {
   const { id } = await params;
   const format = new URL(request.url).searchParams.get('format') ?? 'csv';
-  const offers = await listJobOffers(id, { includePossible: true });
+  const offers = await listJobOffers(id, { includePossible: false, limit: 50 });
 
   const rows = offers.map((offer) => ({
-    mpn: offer.mpn,
-    manufacturer: offer.manufacturer ?? '',
     supplierName: offer.supplier.name ?? offer.supplier.domain,
     supplierCountry: offer.supplier.country ?? '',
-    supplierWebsite: offer.supplier.website ?? `https://${offer.supplier.domain}`,
+    manufacturer: offer.manufacturer ?? '',
+    mpn: offer.mpn,
+    supplierPartNumber: offer.supplierPartNumber ?? '',
     productUrl: offer.productUrl,
     price: offer.price?.toString() ?? '',
     currency: offer.currency ?? '',
     priceUsd: offer.priceUsd?.toString() ?? '',
     stockQuantity: offer.stockQuantity?.toString() ?? '',
+    availability: offer.availability ?? '',
     leadTime: offer.leadTime ?? '',
     moq: offer.moq?.toString() ?? '',
+    matchConfidence: String(offer.matchConfidence),
+    reliabilityScore: offer.reliabilityScore?.toString() ?? '',
     lastUpdated: offer.extractedAt.toISOString(),
-    riskFlags: offer.riskFlags.join('|'),
+    warnings: offer.riskFlags.join('|'),
   }));
 
   if (format === 'xlsx') {
@@ -43,26 +46,16 @@ export async function GET(request: Request, { params }: Params) {
     });
   }
 
-  const header = [
-    'mpn',
-    'manufacturer',
-    'supplierName',
-    'supplierCountry',
-    'supplierWebsite',
-    'productUrl',
-    'price',
-    'currency',
-    'priceUsd',
-    'stockQuantity',
-    'leadTime',
-    'moq',
-    'lastUpdated',
-    'riskFlags',
-  ];
+  const header = Object.keys(rows[0] ?? {
+    supplierName: '',
+    mpn: '',
+  });
   const escape = (value: string) => `"${value.replaceAll('"', '""')}"`;
   const csv = [
     header.join(','),
-    ...rows.map((row) => header.map((key) => escape(String(row[key as keyof typeof row] ?? ''))).join(',')),
+    ...rows.map((row) =>
+      header.map((key) => escape(String(row[key as keyof typeof row] ?? ''))).join(','),
+    ),
   ].join('\n');
 
   return new Response(csv, {

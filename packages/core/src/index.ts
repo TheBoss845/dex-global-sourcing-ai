@@ -5,7 +5,14 @@ export { DEFAULT_JOB_BUDGET, QUEUE_NAMES } from './budget.js';
 export type { JobBudget, QueueName } from './budget.js';
 export { normalizeMpn, mpnsMatch } from './mpn.js';
 export { parseMoney, fetchUsdRates, toUsd } from './money.js';
-export { assertSafeUrl, extractRegistrableDomain } from './security/url.js';
+export {
+  assertSafeUrl,
+  assertSafePublicUrl,
+  extractRegistrableDomain,
+  isBlockedHostnameOrIp,
+} from './security/url.js';
+export { safeFetchText } from './security/safe-fetch.js';
+export { identifyManufacturerPartNumber, MPN_MIN_CONFIDENCE } from './identity/identify-mpn.js';
 export { createSearchSchema } from './search/schema.js';
 export type { CreateSearchInput } from './search/schema.js';
 export {
@@ -28,4 +35,4 @@ export {
 } from './pipeline/stages.js';
 export type { PipelineEnv } from './pipeline/stages.js';
 
-export const CORE_PACKAGE_VERSION = '0.1.0';
+export const CORE_PACKAGE_VERSION = '0.2.0';

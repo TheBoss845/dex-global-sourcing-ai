@@ -8,7 +8,7 @@ export type JobBudget = {
 
 export const DEFAULT_JOB_BUDGET: JobBudget = {
   maxSerpQueries: 4,
-  maxCandidates: 15,
+  maxCandidates: 18,
   maxBrowserNavigations: 5,
   maxAiCalls: 8,
   wallClockMs: 10 * 60 * 1000,
