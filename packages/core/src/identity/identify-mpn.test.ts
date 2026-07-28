@@ -40,6 +40,22 @@ describe('identifyManufacturerPartNumber', () => {
     assert.equal('failed' in result && result.failed, true);
   });
 
+  it('fails when only model/catalog exists', () => {
+    const result = identifyManufacturerPartNumber({
+      evidence: [
+        {
+          value: 'MODEL-100',
+          classification: 'model',
+          source: 'labeled_dom',
+          path: 'label:Model',
+          score: 0.7,
+        },
+      ],
+      method: 'generic',
+    });
+    assert.equal('failed' in result && result.failed, true);
+  });
+
   it('prefers longer path MPN over shorter family JSON-LD', () => {
     const result = identifyManufacturerPartNumber({
       mpn: 'UA78',
@@ -66,5 +82,29 @@ describe('identifyManufacturerPartNumber', () => {
     if (!('failed' in result)) {
       assert.equal(result.originalMpn, 'UA7805');
     }
+  });
+
+  it('fails low-confidence MPN candidates', () => {
+    const result = identifyManufacturerPartNumber({
+      evidence: [
+        {
+          value: 'XYZ',
+          classification: 'mpn',
+          source: 'heuristic',
+          path: 'weak',
+          score: 0.4,
+        },
+      ],
+      method: 'generic',
+    });
+    assert.equal('failed' in result && result.failed, true);
+  });
+
+  it('never invents an MPN with empty evidence', () => {
+    const result = identifyManufacturerPartNumber({
+      evidence: [],
+      method: 'generic',
+    });
+    assert.equal('failed' in result && result.failed, true);
   });
 });

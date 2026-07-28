@@ -31,7 +31,13 @@ TAVILY_API_KEY=tvly-...
 OPENAI_API_KEY=sk-...
 AI_ENABLED=true
 RESULT_LIMIT=10
+# Required for production (NODE_ENV=production); optional locally
+# DEX_API_KEY=change-me
 ```
+
+**Supported pages:** public HTML product pages that expose a manufacturer part number (JSON-LD, labeled fields, or clear product URL). Bot-walled / JS-only distributor pages may fail honestly until a browser fetcher is added.
+
+**Health:** `GET /api/health`
 
 ### 3. Install & migrate
 

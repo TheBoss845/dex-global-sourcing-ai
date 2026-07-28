@@ -450,6 +450,16 @@ export async function runExtractStage(jobId: string, env: PipelineEnv): Promise<
   const candidates = job.candidates.slice(0, budget.maxCandidates);
 
   for (const candidate of candidates) {
+    const latest = await prisma.searchJob.findUnique({
+      where: { id: jobId },
+      select: { status: true, startedAt: true, budgetJson: true },
+    });
+    if (!latest || latest.status === 'cancelled') return;
+    const wallClockMs = (latest.budgetJson as JobBudget).wallClockMs ?? budget.wallClockMs;
+    if (latest.startedAt && Date.now() - latest.startedAt.getTime() > wallClockMs) {
+      throw new AppError(ErrorCodes.BudgetExceeded, 'Job wall-clock budget exceeded');
+    }
+
     await prisma.jobCandidate.update({
       where: { id: candidate.id },
       data: { status: 'extracting' },
@@ -960,23 +970,28 @@ export async function runEnrichStage(jobId: string, env: PipelineEnv): Promise<v
     await appendJobEvent(jobId, 'AI disabled — skipping enrichment', { stage: 'enriching' });
   }
 
+  // Re-read offers after optional AI risk flags so final counts/status are accurate.
+  const finalOffers = await prisma.offer.findMany({
+    where: { jobId },
+    include: { supplier: true },
+  });
   const failed = job.candidates.some((c) => c.status === 'failed');
-  const status = job.offers.length === 0 ? 'failed' : failed ? 'completed_with_errors' : 'completed';
+  const status = finalOffers.length === 0 ? 'failed' : failed ? 'completed_with_errors' : 'completed';
 
   await setJobStatus(jobId, status, {
     finishedAt: new Date(),
-    offerCount: job.offers.length,
+    offerCount: finalOffers.length,
     summaryJson: {
       summary:
         summary ??
-        `Identified ${job.part?.originalMpn ?? 'MPN'}; ${job.offers.length} supplier options (best-effort worldwide discovery).`,
-      offerCount: job.offers.length,
+        `Identified ${job.part?.originalMpn ?? 'MPN'}; ${finalOffers.length} supplier options (best-effort worldwide discovery).`,
+      offerCount: finalOffers.length,
       manufacturer: job.part?.manufacturer,
       mpn: job.part?.originalMpn,
       confidence: job.identificationConfidence,
     },
     progressJson: { stage: status, percent: 100 },
-    ...(job.offers.length === 0
+    ...(finalOffers.length === 0
       ? {
           errorCode: ErrorCodes.ExtractionError,
           errorMessage: 'No matching supplier offers found for the identified MPN',

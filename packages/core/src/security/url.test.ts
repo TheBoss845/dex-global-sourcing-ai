@@ -18,6 +18,17 @@ describe('assertSafeUrl', () => {
     assert.equal(url.protocol, 'http:');
   });
 
+  it('blocks unsupported protocols', () => {
+    assert.throws(
+      () => assertSafeUrl('file:///etc/passwd'),
+      (err: unknown) => err instanceof AppError && err.code === 'SSRF_BLOCKED',
+    );
+    assert.throws(
+      () => assertSafeUrl('ftp://example.com/x'),
+      (err: unknown) => err instanceof AppError,
+    );
+  });
+
   it('blocks localhost', () => {
     assert.throws(
       () => assertSafeUrl('http://localhost/x', { allowHttp: true }),
@@ -30,10 +41,33 @@ describe('assertSafeUrl', () => {
       () => assertSafeUrl('https://127.0.0.1/'),
       (err: unknown) => err instanceof AppError && err.code === 'SSRF_BLOCKED',
     );
+    assert.throws(
+      () => assertSafeUrl('http://10.0.0.5/'),
+      (err: unknown) => err instanceof AppError && err.code === 'SSRF_BLOCKED',
+    );
+    assert.throws(
+      () => assertSafeUrl('http://192.168.1.10/'),
+      (err: unknown) => err instanceof AppError && err.code === 'SSRF_BLOCKED',
+    );
+    assert.throws(
+      () => assertSafeUrl('http://172.16.0.1/'),
+      (err: unknown) => err instanceof AppError && err.code === 'SSRF_BLOCKED',
+    );
   });
 
   it('blocks metadata IP literal', () => {
     assert.equal(isBlockedHostnameOrIp('169.254.169.254'), true);
+    assert.throws(
+      () => assertSafeUrl('http://169.254.169.254/latest/meta-data'),
+      (err: unknown) => err instanceof AppError && err.code === 'SSRF_BLOCKED',
+    );
+  });
+
+  it('blocks malformed URLs', () => {
+    assert.throws(
+      () => assertSafeUrl('not a url'),
+      (err: unknown) => err instanceof AppError && err.code === 'VALIDATION_ERROR',
+    );
   });
 });
 

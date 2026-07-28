@@ -77,6 +77,54 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authed, setAuthed] = useState(true);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [authChecking, setAuthChecking] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkAuth() {
+      try {
+        const status = await fetch('/api/auth/status').then((r) => r.json());
+        if (cancelled) return;
+        setAuthRequired(Boolean(status.authRequired));
+        if (!status.authRequired) {
+          setAuthed(true);
+          return;
+        }
+        // Probe a protected lightweight path via health is public; try events with fake id → 401/404
+        const probe = await fetch('/api/searches/__auth_probe__');
+        if (cancelled) return;
+        setAuthed(probe.status !== 401);
+      } catch {
+        if (!cancelled) setAuthed(true);
+      } finally {
+        if (!cancelled) setAuthChecking(false);
+      }
+    }
+    void checkAuth();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function unlock(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: apiKeyInput }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error ?? 'Unlock failed');
+      return;
+    }
+    setAuthed(true);
+    setApiKeyInput('');
+  }
 
   async function startSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -160,6 +208,40 @@ export function Dashboard() {
   const identifiedMpn = job?.part?.originalMpn || job?.part?.rawMpn || job?.summaryJson?.mpn;
   const identifiedMfr = job?.part?.manufacturer || job?.summaryJson?.manufacturer;
   const isRunning = Boolean(job && !TERMINAL.has(job.status));
+
+  if (authChecking) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-4">
+        <p className="text-dex-muted">Loading…</p>
+      </main>
+    );
+  }
+
+  if (authRequired && !authed) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center px-4">
+        <h1 className="font-display text-3xl font-semibold text-dex-brand">DEX access</h1>
+        <p className="mt-2 text-sm text-dex-muted">
+          Enter the API key configured as <code>DEX_API_KEY</code> to use this assistant.
+        </p>
+        <form onSubmit={(e) => void unlock(e)} className="mt-6 space-y-3">
+          <input
+            type="password"
+            value={apiKeyInput}
+            onChange={(e) => setApiKeyInput(e.target.value)}
+            className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
+            placeholder="API key"
+            required
+            autoComplete="current-password"
+          />
+          <button type="submit" className="rounded-lg bg-dex-accent px-5 py-2.5 font-medium text-white">
+            Unlock
+          </button>
+        </form>
+        {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-8 md:px-8">

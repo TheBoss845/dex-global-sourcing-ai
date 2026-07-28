@@ -3,35 +3,47 @@ import { listJobOffers } from '@dex/core';
 
 type Params = { params: Promise<{ id: string }> };
 
+/** Prevent CSV/Excel formula injection from scraped supplier fields. */
+function sanitizeCell(value: string): string {
+  if (/^[=+\-@\t\r]/.test(value)) {
+    return `'${value}`;
+  }
+  return value;
+}
+
 export async function GET(request: Request, { params }: Params) {
   const { id } = await params;
   const format = new URL(request.url).searchParams.get('format') ?? 'csv';
   const offers = await listJobOffers(id, { includePossible: false, limit: 50 });
 
+  if (offers.length === 0) {
+    return new Response('No offers available for export', { status: 404 });
+  }
+
   const rows = offers.map((offer) => ({
-    supplierName: offer.supplier.name ?? offer.supplier.domain,
-    supplierCountry: offer.supplier.country ?? '',
-    manufacturer: offer.manufacturer ?? '',
-    mpn: offer.mpn,
-    supplierPartNumber: offer.supplierPartNumber ?? '',
-    productUrl: offer.productUrl,
-    price: offer.price?.toString() ?? '',
-    currency: offer.currency ?? '',
-    priceUsd: offer.priceUsd?.toString() ?? '',
-    stockQuantity: offer.stockQuantity?.toString() ?? '',
-    availability: offer.availability ?? '',
-    leadTime: offer.leadTime ?? '',
-    moq: offer.moq?.toString() ?? '',
+    supplierName: sanitizeCell(offer.supplier.name ?? offer.supplier.domain),
+    supplierCountry: sanitizeCell(offer.supplier.country ?? ''),
+    manufacturer: sanitizeCell(offer.manufacturer ?? ''),
+    mpn: sanitizeCell(offer.mpn),
+    supplierPartNumber: sanitizeCell(offer.supplierPartNumber ?? ''),
+    productUrl: sanitizeCell(offer.productUrl),
+    price: sanitizeCell(offer.price?.toString() ?? ''),
+    currency: sanitizeCell(offer.currency ?? ''),
+    priceUsd: sanitizeCell(offer.priceUsd?.toString() ?? ''),
+    stockQuantity: sanitizeCell(offer.stockQuantity?.toString() ?? ''),
+    availability: sanitizeCell(offer.availability ?? ''),
+    leadTime: sanitizeCell(offer.leadTime ?? ''),
+    moq: sanitizeCell(offer.moq?.toString() ?? ''),
     matchConfidence: String(offer.matchConfidence),
     reliabilityScore: offer.reliabilityScore?.toString() ?? '',
     lastUpdated: offer.extractedAt.toISOString(),
-    warnings: offer.riskFlags.join('|'),
+    warnings: sanitizeCell(offer.riskFlags.join('|')),
   }));
 
   if (format === 'xlsx') {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Offers');
-    sheet.columns = Object.keys(rows[0] ?? { mpn: '' }).map((key) => ({
+    sheet.columns = Object.keys(rows[0]!).map((key) => ({
       header: key,
       key,
       width: 18,
@@ -46,10 +58,7 @@ export async function GET(request: Request, { params }: Params) {
     });
   }
 
-  const header = Object.keys(rows[0] ?? {
-    supplierName: '',
-    mpn: '',
-  });
+  const header = Object.keys(rows[0]!);
   const escape = (value: string) => `"${value.replaceAll('"', '""')}"`;
   const csv = [
     header.join(','),

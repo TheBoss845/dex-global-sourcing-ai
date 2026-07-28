@@ -171,10 +171,17 @@ export async function listJobOffers(
           : sort === 'extractedAt'
             ? { extractedAt: order }
             : { priceUsd: { sort: order, nulls: 'last' } },
-    take: limit,
+    take: Math.max(limit * 3, limit),
   });
 
-  return offers;
+  // Demote AI-flagged suspicious rows after primary sort; then apply limit.
+  const ranked = [...offers].sort((a, b) => {
+    const aSuspicious = a.riskFlags.includes('ai_suspicious') ? 1 : 0;
+    const bSuspicious = b.riskFlags.includes('ai_suspicious') ? 1 : 0;
+    if (aSuspicious !== bSuspicious) return aSuspicious - bSuspicious;
+    return 0;
+  });
+  return ranked.slice(0, limit);
 }
 
 export async function cancelSearchJob(jobId: string) {
