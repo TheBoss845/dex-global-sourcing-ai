@@ -1098,20 +1098,25 @@ export function Dashboard() {
                     />
                   </div>
                 </div>
-                {batchDone && batchId ? (
-                  <div className="flex shrink-0 gap-2">
-                    <a
-                      className="rounded-lg bg-dex-accent px-4 py-2 text-sm font-semibold text-white shadow-card transition hover:brightness-110"
-                      href={`/api/batches/${batchId}/export?format=xlsx`}
-                    >
-                      ↓ Excel report
-                    </a>
-                    <a
-                      className="rounded-lg border border-dex-border px-4 py-2 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
-                      href={`/api/batches/${batchId}/export?format=csv`}
-                    >
-                      ↓ CSV
-                    </a>
+                {batchId && batchJobs.some((j) => TERMINAL.has(j.status)) ? (
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <div className="flex gap-2">
+                      <a
+                        className="rounded-lg bg-dex-accent px-4 py-2 text-sm font-semibold text-white shadow-card transition hover:brightness-110"
+                        href={`/api/batches/${batchId}/export?format=xlsx`}
+                      >
+                        Download Excel
+                      </a>
+                      <a
+                        className="rounded-lg border border-dex-border px-4 py-2 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
+                        href={`/api/batches/${batchId}/export?format=csv`}
+                      >
+                        CSV
+                      </a>
+                    </div>
+                    {!batchDone ? (
+                      <p className="text-[11px] text-dex-muted">Includes finished parts so far</p>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -1572,19 +1577,19 @@ export function Dashboard() {
                 className="rounded-lg border border-dex-border bg-transparent px-3 py-2 text-sm outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25"
                 aria-label="Filter supplier results"
               />
-              {job && TERMINAL.has(job.status) && offers.length > 0 ? (
+              {job && offers.length > 0 ? (
                 <>
+                  <a
+                    className="rounded-lg bg-dex-accent px-3.5 py-2 text-sm font-semibold text-white transition hover:brightness-110"
+                    href={`/api/searches/${job.id}/export?format=xlsx`}
+                  >
+                    Download Excel
+                  </a>
                   <a
                     className="rounded-lg border border-dex-border px-3.5 py-2 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
                     href={`/api/searches/${job.id}/export?format=csv`}
                   >
-                    ↓ CSV
-                  </a>
-                  <a
-                    className="rounded-lg border border-dex-border px-3.5 py-2 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
-                    href={`/api/searches/${job.id}/export?format=xlsx`}
-                  >
-                    ↓ Excel
+                    CSV
                   </a>
                 </>
               ) : null}
