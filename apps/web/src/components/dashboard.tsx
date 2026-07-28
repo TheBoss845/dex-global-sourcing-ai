@@ -409,7 +409,9 @@ export function Dashboard() {
       return;
     }
 
-    // Free text: ask the AI what the user wants, then request approval.
+    // Free text: resolve to a concrete product. High-confidence
+    // interpretations run immediately; confirmation is only requested
+    // when the request is ambiguous.
     setInterpreting(true);
     try {
       const res = await fetch('/api/searches/interpret', {
@@ -419,10 +421,19 @@ export function Dashboard() {
         body: JSON.stringify({ query: raw }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Could not understand that request');
-      setInterpretation(data.interpretation);
+      if (!res.ok) throw new Error(data.error ?? 'Could not process that request');
+      const proposal = data.interpretation as NonNullable<typeof interpretation>;
+      if (proposal.confidence >= 0.85) {
+        await launchSearch({
+          mpn: proposal.mpn || proposal.searchTerm,
+          description: proposal.productName,
+          manufacturer: proposal.manufacturer,
+        });
+      } else {
+        setInterpretation(proposal);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not understand that request');
+      setError(err instanceof Error ? err.message : 'Could not process that request');
     } finally {
       setInterpreting(false);
     }
@@ -1246,11 +1257,11 @@ export function Dashboard() {
                   </svg>
                 )}
                 {interpreting
-                  ? 'Understanding…'
+                  ? 'Analyzing…'
                   : submitting
                     ? 'Starting…'
                     : isRunning
-                      ? 'Working…'
+                      ? 'Searching…'
                       : 'Find suppliers'}
               </button>
               {isRunning ? (
@@ -1313,18 +1324,15 @@ export function Dashboard() {
             ) : null}
           </form>
 
-          {/* AI interpretation approval */}
+          {/* Product confirmation (shown only for ambiguous requests) */}
           {mode === 'single' && interpretation && !job ? (
-            <div className="dex-fade-up mt-4 rounded-2xl border border-dex-accent/40 bg-dex-bg-elevated p-5 shadow-card-lg">
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-dex-accent-soft text-sm">
-                  🤖
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-semibold tracking-wide text-dex-muted uppercase">
-                    {justLearned ? 'Got it — updated understanding' : 'Is this what you want?'}
-                  </p>
-                  <p className="font-display mt-1 text-xl font-semibold text-dex-brand">
+            <div className="dex-fade-up mt-4 rounded-2xl border border-dex-border bg-dex-bg-elevated p-5 shadow-card">
+              <p className="text-[11px] font-semibold tracking-wide text-dex-muted uppercase">
+                {justLearned ? 'Interpretation updated' : 'Confirm product'}
+              </p>
+              <div className="mt-2 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="min-w-0">
+                  <p className="font-display text-lg font-semibold text-dex-brand">
                     {interpretation.productName}
                   </p>
                   <p className="mt-0.5 text-sm text-dex-muted">
@@ -1332,69 +1340,62 @@ export function Dashboard() {
                     {interpretation.mpn ? (
                       <span className="font-medium text-dex-fg">{interpretation.mpn}</span>
                     ) : (
-                      <>will search for “{interpretation.searchTerm}”</>
+                      <>search term: “{interpretation.searchTerm}”</>
                     )}
-                    {' · '}
-                    {Math.round(interpretation.confidence * 100)}% sure
                   </p>
-                  {interpretation.explanation ? (
-                    <p className="mt-2 text-sm leading-relaxed text-dex-fg">
-                      {interpretation.explanation}
-                    </p>
-                  ) : null}
-
-                  {!showCorrection ? (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void approveInterpretation()}
-                        disabled={submitting}
-                        className="flex items-center gap-2 rounded-lg bg-dex-accent px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:brightness-110 disabled:opacity-50"
-                      >
-                        {submitting ? <Spinner /> : '✓'} Yes — find suppliers
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCorrection(true);
-                          setJustLearned(false);
-                        }}
-                        className="rounded-lg border border-dex-border px-4 py-2.5 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
-                      >
-                        ✕ Not right — teach it
-                      </button>
-                    </div>
-                  ) : (
-                    <form onSubmit={(e) => void teachCorrection(e)} className="mt-4">
-                      <label className="mb-1.5 block text-sm font-medium" htmlFor="correction">
-                        What did you actually mean?
-                      </label>
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <input
-                          id="correction"
-                          value={correctionInput}
-                          onChange={(e) => setCorrectionInput(e.target.value)}
-                          placeholder="e.g. the Raspberry Pi Zero 2 W, not the original Zero"
-                          className="w-full rounded-lg border border-dex-border bg-transparent px-3.5 py-2.5 text-sm outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25"
-                          autoFocus
-                        />
-                        <button
-                          type="submit"
-                          disabled={teaching || correctionInput.trim().length < 2}
-                          className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-dex-accent px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
-                        >
-                          {teaching ? <Spinner /> : null}
-                          {teaching ? 'Learning…' : 'Teach the AI'}
-                        </button>
-                      </div>
-                      <p className="mt-2 text-xs text-dex-muted">
-                        Your correction is saved — the assistant applies it to every future
-                        request like this one.
-                      </p>
-                    </form>
-                  )}
                 </div>
+                {!showCorrection ? (
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void approveInterpretation()}
+                      disabled={submitting}
+                      className="flex items-center gap-2 rounded-lg bg-dex-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+                    >
+                      {submitting ? <Spinner /> : null}
+                      Search
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCorrection(true);
+                        setJustLearned(false);
+                      }}
+                      className="rounded-lg border border-dex-border px-4 py-2.5 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
+                    >
+                      Refine
+                    </button>
+                  </div>
+                ) : null}
               </div>
+              {showCorrection ? (
+                <form onSubmit={(e) => void teachCorrection(e)} className="mt-4 border-t border-dex-border pt-4">
+                  <label className="mb-1.5 block text-sm font-medium" htmlFor="correction">
+                    Describe the correct product
+                  </label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      id="correction"
+                      value={correctionInput}
+                      onChange={(e) => setCorrectionInput(e.target.value)}
+                      placeholder="e.g. Raspberry Pi Zero 2 W"
+                      className="w-full rounded-lg border border-dex-border bg-transparent px-3.5 py-2.5 text-sm outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25"
+                      autoFocus
+                    />
+                    <button
+                      type="submit"
+                      disabled={teaching || correctionInput.trim().length < 2}
+                      className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-dex-accent px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+                    >
+                      {teaching ? <Spinner /> : null}
+                      {teaching ? 'Saving…' : 'Save correction'}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-dex-muted">
+                    Corrections are saved and applied to future searches.
+                  </p>
+                </form>
+              ) : null}
             </div>
           ) : null}
         </section>
@@ -1708,11 +1709,11 @@ export function Dashboard() {
                       {!job ? (
                         <div className="mx-auto max-w-sm">
                           <p className="font-display text-base font-semibold text-dex-brand">
-                            Ready when you are
+                            No search yet
                           </p>
                           <p className="mt-1.5 text-sm text-dex-muted">
-                            Paste a product-page URL above and DEX will find suppliers for the
-                            exact part, worldwide.
+                            Enter a product, part number, or product-page link above to find
+                            suppliers worldwide.
                           </p>
                         </div>
                       ) : isRunning ? (
