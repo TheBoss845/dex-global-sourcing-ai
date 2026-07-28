@@ -12,6 +12,7 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/login',
   '/api/auth/logout',
   '/api/auth/status',
+  '/api/auth/verify',
 ]);
 
 export async function middleware(request: NextRequest) {

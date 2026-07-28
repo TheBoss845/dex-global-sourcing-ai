@@ -1,13 +1,18 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
+import { prisma } from '@dex/db';
 import {
   authConfigured,
   authRequired,
-  createSessionToken,
   isAllowedEmail,
   isDexEmail,
   normalizeEmail,
-  sessionSecret,
 } from '@/lib/auth';
+import { appBaseUrl, emailSendingConfigured, sendVerificationEmail } from '@/lib/email';
+
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
 
 export async function POST(request: Request) {
   if (!authRequired()) {
@@ -33,9 +38,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Enter a valid @dex.com work email' }, { status: 400 });
   }
 
+  // Hard reject anything that is not @dex.com before sending mail.
   if (!isDexEmail(email)) {
     return NextResponse.json(
-      { error: 'Only @dex.com email addresses can sign in' },
+      { error: 'Only @dex.com email addresses can sign in. Gmail and other domains are blocked.' },
       { status: 401 },
     );
   }
@@ -47,14 +53,62 @@ export async function POST(request: Request) {
     );
   }
 
-  const token = await createSessionToken(sessionSecret()!, email);
-  const response = NextResponse.json({ ok: true, authRequired: true, email });
-  response.cookies.set('dex_session', token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    maxAge: 60 * 60 * 12,
+  if (!emailSendingConfigured() && process.env.NODE_ENV === 'production') {
+    return NextResponse.json(
+      {
+        error:
+          'Email verification is not configured. Set RESEND_API_KEY and EMAIL_FROM on the server.',
+      },
+      { status: 503 },
+    );
+  }
+
+  const rawToken = randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+  // Invalidate older unused tokens for this email.
+  await prisma.emailVerificationToken.deleteMany({
+    where: { email, usedAt: null },
   });
-  return response;
+
+  await prisma.emailVerificationToken.create({
+    data: {
+      email,
+      token: tokenHash,
+      expiresAt,
+    },
+  });
+
+  const verifyUrl = `${appBaseUrl(request)}/api/auth/verify?token=${rawToken}`;
+
+  if (emailSendingConfigured()) {
+    try {
+      await sendVerificationEmail({ to: email, verifyUrl });
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : 'Failed to send verification email',
+        },
+        { status: 502 },
+      );
+    }
+  }
+
+  const payload: Record<string, unknown> = {
+    ok: true,
+    authRequired: true,
+    verificationSent: emailSendingConfigured(),
+    message: emailSendingConfigured()
+      ? 'Check your @dex.com inbox for a verification link.'
+      : 'Email provider not configured; use the local verification link.',
+  };
+
+  // Never expose magic links in production responses.
+  if (process.env.NODE_ENV !== 'production' && !emailSendingConfigured()) {
+    payload.devVerifyUrl = verifyUrl;
+  }
+
+  return NextResponse.json(payload);
 }

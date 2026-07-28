@@ -31,15 +31,16 @@ TAVILY_API_KEY=tvly-...
 OPENAI_API_KEY=sk-...
 AI_ENABLED=true
 RESULT_LIMIT=10
-# Production: only @dex.com emails can sign in. Set a random cookie secret:
+# Sign-in: only @dex.com emails; verification link is emailed via Resend
 AUTH_SECRET=long-random-string
-# Optional: limit to specific DEX users (otherwise any @dex.com works)
-# DEX_ALLOWED_EMAILS=you@dex.com
+APP_BASE_URL=https://your-app.up.railway.app
+RESEND_API_KEY=re_...
+EMAIL_FROM=DEX Sourcing <noreply@your-verified-domain.com>
 ```
 
 **Supported pages:** public HTML product pages that expose a manufacturer part number (JSON-LD, labeled fields, or clear product URL). Bot-walled / JS-only distributor pages may fail honestly until a browser fetcher is added.
 
-**Sign-in:** In production, users sign in with an **@dex.com** email only (Gmail and other domains are blocked).
+**Sign-in:** Users enter an **@dex.com** email → receive a verification link → click to sign in. Gmail and other domains are rejected before send and again on verify.
 
 **Health:** `GET /api/health`
 

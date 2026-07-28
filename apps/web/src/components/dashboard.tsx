@@ -82,6 +82,9 @@ export function Dashboard() {
   const [emailInput, setEmailInput] = useState('');
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
+  const [verificationSent, setVerificationSent] = useState(false);
+  const [devVerifyUrl, setDevVerifyUrl] = useState<string | null>(null);
+  const [sendingLink, setSendingLink] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,25 +120,37 @@ export function Dashboard() {
   async function signIn(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: emailInput.trim() }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error ?? 'Sign-in failed');
-      return;
+    setVerificationSent(false);
+    setDevVerifyUrl(null);
+    setSendingLink(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? 'Sign-in failed');
+        return;
+      }
+      setVerificationSent(true);
+      if (typeof data.devVerifyUrl === 'string') {
+        setDevVerifyUrl(data.devVerifyUrl);
+      }
+    } catch {
+      setError('Could not send verification email');
+    } finally {
+      setSendingLink(false);
     }
-    setAuthed(true);
-    setSignedInEmail(data.email ?? emailInput.trim().toLowerCase());
-    setEmailInput('');
   }
 
   async function signOut() {
     await fetch('/api/auth/logout', { method: 'POST' });
     setAuthed(false);
     setSignedInEmail(null);
+    setVerificationSent(false);
+    setDevVerifyUrl(null);
     setJob(null);
     setOffers([]);
     setEvents([]);
@@ -240,27 +255,61 @@ export function Dashboard() {
           Global Sourcing Assistant
         </h1>
         <p className="mt-3 text-sm text-dex-muted">
-          Sign in with your <span className="font-medium text-dex-fg">@dex.com</span> work email.
-          Personal addresses like Gmail are not allowed.
+          Enter your <span className="font-medium text-dex-fg">@dex.com</span> email. We’ll send a
+          verification link. Gmail and other domains are blocked.
         </p>
-        <form onSubmit={(e) => void signIn(e)} className="mt-6 space-y-3">
-          <label className="block text-sm font-medium" htmlFor="work-email">
-            DEX work email
-          </label>
-          <input
-            id="work-email"
-            type="email"
-            value={emailInput}
-            onChange={(e) => setEmailInput(e.target.value)}
-            className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
-            placeholder="you@dex.com"
-            required
-            autoComplete="email"
-          />
-          <button type="submit" className="rounded-lg bg-dex-accent px-5 py-2.5 font-medium text-white">
-            Sign in
-          </button>
-        </form>
+
+        {verificationSent ? (
+          <div className="mt-6 rounded-xl border border-dex-border bg-dex-bg-elevated/90 p-4">
+            <p className="font-medium text-dex-fg">Check your email</p>
+            <p className="mt-2 text-sm text-dex-muted">
+              If <span className="font-medium">{emailInput || 'that address'}</span> is a valid
+              @dex.com inbox, a sign-in link is on the way. Open it to finish signing in.
+            </p>
+            {devVerifyUrl ? (
+              <p className="mt-3 break-all text-sm">
+                Local dev link:{' '}
+                <a className="text-dex-accent underline" href={devVerifyUrl}>
+                  {devVerifyUrl}
+                </a>
+              </p>
+            ) : null}
+            <button
+              type="button"
+              className="mt-4 text-sm text-dex-accent underline"
+              onClick={() => {
+                setVerificationSent(false);
+                setDevVerifyUrl(null);
+                setError(null);
+              }}
+            >
+              Use a different email
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={(e) => void signIn(e)} className="mt-6 space-y-3">
+            <label className="block text-sm font-medium" htmlFor="work-email">
+              DEX work email
+            </label>
+            <input
+              id="work-email"
+              type="email"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
+              placeholder="you@dex.com"
+              required
+              autoComplete="email"
+            />
+            <button
+              type="submit"
+              disabled={sendingLink}
+              className="rounded-lg bg-dex-accent px-5 py-2.5 font-medium text-white disabled:opacity-50"
+            >
+              {sendingLink ? 'Sending…' : 'Send verification email'}
+            </button>
+          </form>
+        )}
         {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
       </main>
     );
