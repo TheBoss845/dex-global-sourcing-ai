@@ -8,6 +8,15 @@ loadDotenv({ path: path.join(rootDir, '.env') });
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ['@prisma/client', 'bullmq'],
+  // Monorepo: trace server dependencies from the repo root so serverless
+  // bundles (Netlify/Vercel) include workspace packages and Prisma engines.
+  outputFileTracingRoot: rootDir,
+  outputFileTracingIncludes: {
+    '/api/**': [
+      '../../node_modules/.pnpm/**/.prisma/client/libquery_engine-*.node',
+      '../../node_modules/.pnpm/**/.prisma/client/schema.prisma',
+    ],
+  },
 };
 
 export default nextConfig;

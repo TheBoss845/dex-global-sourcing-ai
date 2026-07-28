@@ -26,18 +26,51 @@ async function checkRedis(redisUrl: string): Promise<boolean> {
 }
 
 export async function GET() {
-  const env = getServerEnv();
+  // Never crash the health endpoint: report missing configuration instead.
+  const missing: string[] = [];
+  if (!process.env.DATABASE_URL?.trim()) missing.push('DATABASE_URL');
+  if (!process.env.AUTH_SECRET?.trim()) missing.push('AUTH_SECRET (recommended)');
+  if (!process.env.TAVILY_API_KEY?.trim()) missing.push('TAVILY_API_KEY');
+
+  if (!process.env.DATABASE_URL?.trim()) {
+    return NextResponse.json(
+      {
+        status: 'misconfigured',
+        error:
+          'DATABASE_URL is not visible to the running server. In Netlify: Site configuration → Environment variables → make sure DATABASE_URL exists with scope "All scopes" (not Builds-only), then Deploys → Clear cache and deploy site.',
+        missing,
+      },
+      { status: 503 },
+    );
+  }
+
+  let env: ReturnType<typeof getServerEnv>;
+  try {
+    env = getServerEnv();
+  } catch (error) {
+    return NextResponse.json(
+      {
+        status: 'misconfigured',
+        error: error instanceof Error ? error.message : 'Invalid server configuration',
+        missing,
+      },
+      { status: 503 },
+    );
+  }
+
   const checks: Record<string, 'ok' | 'error' | 'skipped'> = {
     api: 'ok',
     database: 'error',
     redis: 'skipped',
   };
+  let databaseError: string | null = null;
 
   try {
     await prisma.$queryRaw`SELECT 1`;
     checks.database = 'ok';
-  } catch {
+  } catch (error) {
     checks.database = 'error';
+    databaseError = error instanceof Error ? error.message.slice(0, 300) : 'connection failed';
   }
 
   // Serverless (inline queue) deployments run without Redis.
@@ -50,6 +83,9 @@ export async function GET() {
     {
       status: healthy ? 'ok' : 'degraded',
       checks,
+      ...(databaseError ? { databaseError } : {}),
+      ...(missing.length ? { missing } : {}),
+      queueDriver: process.env.REDIS_URL?.trim() ? 'bullmq' : 'inline',
       authRequired: process.env.NODE_ENV === 'production' || Boolean(process.env.AUTH_SECRET?.trim()),
       email: {
         resendKeySet: Boolean(
