@@ -79,7 +79,8 @@ export function Dashboard() {
   const [cancelling, setCancelling] = useState(false);
   const [authRequired, setAuthRequired] = useState(false);
   const [authed, setAuthed] = useState(true);
-  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
 
   useEffect(() => {
@@ -91,12 +92,16 @@ export function Dashboard() {
         setAuthRequired(Boolean(status.authRequired));
         if (!status.authRequired) {
           setAuthed(true);
+          setSignedInEmail(null);
           return;
         }
-        // Probe a protected lightweight path via health is public; try events with fake id → 401/404
-        const probe = await fetch('/api/searches/__auth_probe__');
-        if (cancelled) return;
-        setAuthed(probe.status !== 401);
+        if (status.signedIn && status.email) {
+          setAuthed(true);
+          setSignedInEmail(status.email);
+          return;
+        }
+        setAuthed(false);
+        setSignedInEmail(null);
       } catch {
         if (!cancelled) setAuthed(true);
       } finally {
@@ -109,21 +114,31 @@ export function Dashboard() {
     };
   }, []);
 
-  async function unlock(e: React.FormEvent) {
+  async function signIn(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: apiKeyInput }),
+      body: JSON.stringify({ email: emailInput.trim() }),
     });
     const data = await res.json();
     if (!res.ok) {
-      setError(data.error ?? 'Unlock failed');
+      setError(data.error ?? 'Sign-in failed');
       return;
     }
     setAuthed(true);
-    setApiKeyInput('');
+    setSignedInEmail(data.email ?? emailInput.trim().toLowerCase());
+    setEmailInput('');
+  }
+
+  async function signOut() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setAuthed(false);
+    setSignedInEmail(null);
+    setJob(null);
+    setOffers([]);
+    setEvents([]);
   }
 
   async function startSearch(e: React.FormEvent) {
@@ -220,22 +235,29 @@ export function Dashboard() {
   if (authRequired && !authed) {
     return (
       <main className="mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center px-4">
-        <h1 className="font-display text-3xl font-semibold text-dex-brand">DEX access</h1>
-        <p className="mt-2 text-sm text-dex-muted">
-          Enter the API key configured as <code>DEX_API_KEY</code> to use this assistant.
+        <p className="font-display text-sm tracking-[0.22em] text-dex-muted uppercase">DEX</p>
+        <h1 className="font-display mt-2 text-3xl font-semibold text-dex-brand">
+          Global Sourcing Assistant
+        </h1>
+        <p className="mt-3 text-sm text-dex-muted">
+          Sign in with your work email address to continue.
         </p>
-        <form onSubmit={(e) => void unlock(e)} className="mt-6 space-y-3">
+        <form onSubmit={(e) => void signIn(e)} className="mt-6 space-y-3">
+          <label className="block text-sm font-medium" htmlFor="work-email">
+            Work email
+          </label>
           <input
-            type="password"
-            value={apiKeyInput}
-            onChange={(e) => setApiKeyInput(e.target.value)}
+            id="work-email"
+            type="email"
+            value={emailInput}
+            onChange={(e) => setEmailInput(e.target.value)}
             className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
-            placeholder="API key"
+            placeholder="you@company.com"
             required
-            autoComplete="current-password"
+            autoComplete="email"
           />
           <button type="submit" className="rounded-lg bg-dex-accent px-5 py-2.5 font-medium text-white">
-            Unlock
+            Sign in
           </button>
         </form>
         {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
@@ -256,7 +278,22 @@ export function Dashboard() {
             worldwide supplier discovery — about 10 useful options when available.
           </p>
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-3">
+          {signedInEmail ? (
+            <div className="text-right text-sm">
+              <p className="text-dex-muted">Signed in</p>
+              <p className="font-medium text-dex-fg">{signedInEmail}</p>
+              <button
+                type="button"
+                onClick={() => void signOut()}
+                className="mt-1 text-dex-accent underline"
+              >
+                Sign out
+              </button>
+            </div>
+          ) : null}
+          <ThemeToggle />
+        </div>
       </header>
 
       <form

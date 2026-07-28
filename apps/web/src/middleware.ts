@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import {
   apiKeyMatches,
+  authConfigured,
   authRequired,
   sessionSecret,
   verifySessionToken,
@@ -26,17 +27,25 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const secret = sessionSecret();
-  if (!secret) {
+  if (!authConfigured()) {
     return NextResponse.json(
-      { error: 'Server misconfigured: DEX_API_KEY is required in production' },
+      {
+        error:
+          'Server misconfigured: set AUTH_SECRET and DEX_ALLOWED_EMAILS for production sign-in',
+      },
       { status: 503 },
     );
   }
 
+  const secret = sessionSecret()!;
   const headerKey = request.headers.get('x-api-key');
+  if (apiKeyMatches(headerKey)) {
+    return NextResponse.next();
+  }
+
   const cookieToken = request.cookies.get('dex_session')?.value;
-  if (apiKeyMatches(headerKey, secret) || (await verifySessionToken(cookieToken, secret))) {
+  const session = await verifySessionToken(cookieToken, secret);
+  if (session.ok) {
     return NextResponse.next();
   }
 
