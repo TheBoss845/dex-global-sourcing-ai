@@ -241,6 +241,78 @@ export async function verifyVendorOffer(input: {
   return parsed.success ? parsed.data : null;
 }
 
+const interpretationSchema = z.object({
+  productName: z.string().min(2).max(120),
+  manufacturer: z.string().max(120).optional(),
+  mpn: z.string().max(80).optional(),
+  searchTerm: z.string().min(2).max(120),
+  confidence: z.number().min(0).max(1),
+  explanation: z.string().max(300).optional(),
+});
+
+export type ProductInterpretation = z.infer<typeof interpretationSchema>;
+
+/**
+ * Figure out what product the user wants from free-form text
+ * ("the small raspberry pi computer", "hp 160gb sata drive").
+ * Past user corrections are injected as learned examples so the
+ * assistant improves with feedback.
+ */
+export async function interpretProductQuery(input: {
+  apiKey: string;
+  model: string;
+  query: string;
+  corrections?: Array<{ userSaid: string; theyMeant: string }>;
+  timeoutMs?: number;
+}): Promise<ProductInterpretation | null> {
+  const client = new OpenAI({
+    apiKey: input.apiKey,
+    timeout: input.timeoutMs ?? 20_000,
+    maxRetries: 1,
+  });
+
+  const learned = (input.corrections ?? [])
+    .slice(0, 10)
+    .map((c) => `- When the user said "${c.userSaid.slice(0, 120)}", they meant "${c.theyMeant.slice(0, 120)}".`)
+    .join('\n');
+
+  const response = await client.chat.completions.create({
+    model: input.model,
+    temperature: 0,
+    max_tokens: 300,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are the DEX sourcing assistant. The user typed a free-form request for a product or part they want to buy. ' +
+          'Work out what they want. Return JSON: {"productName", "manufacturer?", "mpn?", "searchTerm", "confidence" (0-1), "explanation" (one short sentence)}. ' +
+          'productName: plain-English name of the product. mpn: ONLY if you reliably know the exact manufacturer part number — never guess one. ' +
+          'searchTerm: the best text for searching supplier listings (the exact MPN if provided/known, otherwise the precise product name). ' +
+          'Use your product knowledge to resolve vague wording (e.g. "the tiny raspberry pi" → Raspberry Pi Zero). ' +
+          'Set confidence below 0.5 when the request is ambiguous.' +
+          (learned ? `\n\nLEARNED FROM PAST CORRECTIONS (apply these):\n${learned}` : '') +
+          '\n\n' +
+          buildDomainContext({ description: input.query }),
+      },
+      { role: 'user', content: input.query.slice(0, 500) },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) return null;
+
+  let json: unknown;
+  try {
+    json = JSON.parse(content);
+  } catch {
+    return null;
+  }
+
+  const parsed = interpretationSchema.safeParse(json);
+  return parsed.success ? parsed.data : null;
+}
+
 const imageVerdictSchema = z.object({
   matches: z.boolean(),
   confidence: z.number().min(0).max(1),

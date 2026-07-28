@@ -29,15 +29,11 @@ export async function POST(request: Request) {
     const json = (await request.json()) as {
       query?: string;
       url?: string;
+      mpn?: string;
+      description?: string;
+      manufacturer?: string;
       forceRefresh?: boolean;
     };
-    const raw = (json.query ?? json.url ?? '').trim();
-    if (raw.length < 2 || raw.length > 300) {
-      return NextResponse.json(
-        { error: 'Enter a product link, part number, or product name' },
-        { status: 400 },
-      );
-    }
     const forceRefresh = Boolean(json.forceRefresh);
 
     const env = getServerEnv();
@@ -45,6 +41,27 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'Server is missing TAVILY_API_KEY; supplier discovery cannot run.' },
         { status: 503 },
+      );
+    }
+
+    // Approved interpretation: explicit part fields from the AI proposal.
+    if (json.mpn?.trim()) {
+      const job = await createMpnSearchJob(
+        {
+          mpn: json.mpn.trim(),
+          description: json.description?.trim() || undefined,
+          manufacturer: json.manufacturer?.trim() || undefined,
+        },
+        { redisUrl: env.REDIS_URL, forceRefresh },
+      );
+      return NextResponse.json({ job }, { status: 201 });
+    }
+
+    const raw = (json.query ?? json.url ?? '').trim();
+    if (raw.length < 2 || raw.length > 300) {
+      return NextResponse.json(
+        { error: 'Enter a product link, part number, or product name' },
+        { status: 400 },
       );
     }
 

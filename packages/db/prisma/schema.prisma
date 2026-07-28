@@ -358,6 +358,18 @@ model KnowledgeEvent {
   @@map("knowledge_events")
 }
 
+model InterpretationFeedback {
+  id              String   @id @default(cuid())
+  query           String
+  interpretedName String?  @map("interpreted_name")
+  interpretedMpn  String?  @map("interpreted_mpn")
+  correction      String
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("interpretation_feedback")
+}
+
 model EmailVerificationToken {
   id        String   @id @default(cuid())
   email     String

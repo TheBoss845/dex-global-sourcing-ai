@@ -242,6 +242,19 @@ export function Dashboard() {
   const [parseStage, setParseStage] = useState<string | null>(null);
   const singleTickInFlight = useRef(false);
   const batchTickInFlight = useRef(false);
+  const [interpretation, setInterpretation] = useState<{
+    productName: string;
+    manufacturer?: string;
+    mpn?: string;
+    searchTerm: string;
+    confidence: number;
+    explanation?: string;
+  } | null>(null);
+  const [interpreting, setInterpreting] = useState(false);
+  const [correctionInput, setCorrectionInput] = useState('');
+  const [showCorrection, setShowCorrection] = useState(false);
+  const [teaching, setTeaching] = useState(false);
+  const [justLearned, setJustLearned] = useState(false);
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [offers, setOffers] = useState<OfferRow[]>([]);
   const [query, setQuery] = useState('');
@@ -377,9 +390,45 @@ export function Dashboard() {
     setEvents([]);
   }
 
+  function inputLooksLikeUrl(raw: string): boolean {
+    if (/^https?:\/\//i.test(raw)) return true;
+    return !raw.includes(' ') && /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$)/i.test(raw);
+  }
+
   async function startSearch(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setInterpretation(null);
+    setShowCorrection(false);
+    setJustLearned(false);
+    const raw = url.trim();
+
+    // Links skip interpretation — the page itself says what the product is.
+    if (inputLooksLikeUrl(raw)) {
+      await launchSearch({ query: raw });
+      return;
+    }
+
+    // Free text: ask the AI what the user wants, then request approval.
+    setInterpreting(true);
+    try {
+      const res = await fetch('/api/searches/interpret', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ query: raw }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Could not understand that request');
+      setInterpretation(data.interpretation);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not understand that request');
+    } finally {
+      setInterpreting(false);
+    }
+  }
+
+  async function launchSearch(body: Record<string, unknown>) {
     setSubmitting(true);
     setOffers([]);
     setEvents([]);
@@ -387,15 +436,56 @@ export function Dashboard() {
       const res = await fetch('/api/searches', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: url.trim(), forceRefresh }),
+        body: JSON.stringify({ ...body, forceRefresh }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to start search');
       setJob(data.job);
+      setInterpretation(null);
+      setShowCorrection(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function approveInterpretation() {
+    if (!interpretation) return;
+    await launchSearch({
+      mpn: interpretation.mpn || interpretation.searchTerm,
+      description: interpretation.productName,
+      manufacturer: interpretation.manufacturer,
+    });
+  }
+
+  async function teachCorrection(e: React.FormEvent) {
+    e.preventDefault();
+    if (!interpretation || correctionInput.trim().length < 2) return;
+    setTeaching(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/searches/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          query: url.trim(),
+          interpretedName: interpretation.productName,
+          interpretedMpn: interpretation.mpn,
+          correction: correctionInput.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Could not save the correction');
+      setInterpretation(data.interpretation);
+      setShowCorrection(false);
+      setCorrectionInput('');
+      setJustLearned(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the correction');
+    } finally {
+      setTeaching(false);
     }
   }
 
@@ -1146,16 +1236,22 @@ export function Dashboard() {
               />
               <button
                 type="submit"
-                disabled={submitting || !url.trim() || isRunning}
+                disabled={submitting || interpreting || !url.trim() || isRunning}
                 className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-dex-accent px-6 py-3 font-semibold text-white shadow-card transition hover:brightness-110 disabled:opacity-50"
               >
-                {submitting || isRunning ? <Spinner /> : (
+                {submitting || interpreting || isRunning ? <Spinner /> : (
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
                     <circle cx="11" cy="11" r="7" />
                     <path d="m20 20-3.5-3.5" />
                   </svg>
                 )}
-                {submitting ? 'Starting…' : isRunning ? 'Working…' : 'Find suppliers'}
+                {interpreting
+                  ? 'Understanding…'
+                  : submitting
+                    ? 'Starting…'
+                    : isRunning
+                      ? 'Working…'
+                      : 'Find suppliers'}
               </button>
               {isRunning ? (
                 <button
@@ -1216,6 +1312,91 @@ export function Dashboard() {
               </p>
             ) : null}
           </form>
+
+          {/* AI interpretation approval */}
+          {mode === 'single' && interpretation && !job ? (
+            <div className="dex-fade-up mt-4 rounded-2xl border border-dex-accent/40 bg-dex-bg-elevated p-5 shadow-card-lg">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-dex-accent-soft text-sm">
+                  🤖
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold tracking-wide text-dex-muted uppercase">
+                    {justLearned ? 'Got it — updated understanding' : 'Is this what you want?'}
+                  </p>
+                  <p className="font-display mt-1 text-xl font-semibold text-dex-brand">
+                    {interpretation.productName}
+                  </p>
+                  <p className="mt-0.5 text-sm text-dex-muted">
+                    {interpretation.manufacturer ? `${interpretation.manufacturer} · ` : ''}
+                    {interpretation.mpn ? (
+                      <span className="font-medium text-dex-fg">{interpretation.mpn}</span>
+                    ) : (
+                      <>will search for “{interpretation.searchTerm}”</>
+                    )}
+                    {' · '}
+                    {Math.round(interpretation.confidence * 100)}% sure
+                  </p>
+                  {interpretation.explanation ? (
+                    <p className="mt-2 text-sm leading-relaxed text-dex-fg">
+                      {interpretation.explanation}
+                    </p>
+                  ) : null}
+
+                  {!showCorrection ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void approveInterpretation()}
+                        disabled={submitting}
+                        className="flex items-center gap-2 rounded-lg bg-dex-accent px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:brightness-110 disabled:opacity-50"
+                      >
+                        {submitting ? <Spinner /> : '✓'} Yes — find suppliers
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCorrection(true);
+                          setJustLearned(false);
+                        }}
+                        className="rounded-lg border border-dex-border px-4 py-2.5 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
+                      >
+                        ✕ Not right — teach it
+                      </button>
+                    </div>
+                  ) : (
+                    <form onSubmit={(e) => void teachCorrection(e)} className="mt-4">
+                      <label className="mb-1.5 block text-sm font-medium" htmlFor="correction">
+                        What did you actually mean?
+                      </label>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <input
+                          id="correction"
+                          value={correctionInput}
+                          onChange={(e) => setCorrectionInput(e.target.value)}
+                          placeholder="e.g. the Raspberry Pi Zero 2 W, not the original Zero"
+                          className="w-full rounded-lg border border-dex-border bg-transparent px-3.5 py-2.5 text-sm outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25"
+                          autoFocus
+                        />
+                        <button
+                          type="submit"
+                          disabled={teaching || correctionInput.trim().length < 2}
+                          className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-dex-accent px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
+                        >
+                          {teaching ? <Spinner /> : null}
+                          {teaching ? 'Learning…' : 'Teach the AI'}
+                        </button>
+                      </div>
+                      <p className="mt-2 text-xs text-dex-muted">
+                        Your correction is saved — the assistant applies it to every future
+                        request like this one.
+                      </p>
+                    </form>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </section>
 
         {/* Progress */}
