@@ -79,18 +79,22 @@ Open **http://localhost:3000**
 
 If the page does not contain a confident MPN, the job fails with a clear explanation (no guessing).
 
-## Deploy on Render
+## Deploy
 
-See **[docs/render.md](docs/render.md)**.
+Two supported hosts — the same repo powers both:
 
-Short version:
+### Netlify (serverless — no Redis/worker needed)
 
-1. [Render](https://dashboard.render.com) → **New** → **Blueprint**
-2. Connect `TheBoss845/dex-global-sourcing-ai` (`main`)
-3. Fill secrets when prompted: `TAVILY_API_KEY`, `OPENAI_API_KEY`
-4. After deploy: open `https://<your-web>.onrender.com/api/health`, then sign in with an `@dex.com` email or `lmfelcher@gmail.com` (instant — no email link needed)
+See **[docs/netlify.md](docs/netlify.md)**. Short version:
 
-`render.yaml` creates Web + Worker + Postgres + Redis.
+1. Create a free Postgres at [neon.tech](https://neon.tech), copy the connection string
+2. [Netlify](https://app.netlify.com) → **Add new site** → import `TheBoss845/dex-global-sourcing-ai` (`main`)
+3. Add env vars: `DATABASE_URL` (Neon), `AUTH_SECRET`, `TAVILY_API_KEY`, `OPENAI_API_KEY`
+4. Deploy → open `/api/health` → sign in with `@dex.com` or `lmfelcher@gmail.com`
+
+### Render (background worker + Redis)
+
+See **[docs/render.md](docs/render.md)** — `render.yaml` creates Web + Worker + Postgres + Redis via **New → Blueprint**.
 
 ## Scripts
 

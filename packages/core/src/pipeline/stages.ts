@@ -591,7 +591,11 @@ function isLowValueDomain(domain: string, url: string): boolean {
   return false;
 }
 
-export async function runExtractStage(jobId: string, env: PipelineEnv): Promise<void> {
+export async function runExtractStage(
+  jobId: string,
+  env: PipelineEnv,
+  options?: { candidateLimit?: number; fetchTimeoutMs?: number },
+): Promise<void> {
   const job = await prisma.searchJob.findUnique({
     where: { id: jobId },
     include: {
@@ -604,12 +608,18 @@ export async function runExtractStage(jobId: string, env: PipelineEnv): Promise<
   await setJobStatus(jobId, 'extracting', {
     progressJson: { stage: 'extracting', percent: 55 },
   });
-  await appendJobEvent(jobId, `Extracting and validating offers from ${job.candidates.length} candidates`, {
-    stage: 'extracting',
-  });
+  if (!options?.candidateLimit || job.candidates.length <= options.candidateLimit) {
+    await appendJobEvent(jobId, `Extracting and validating offers from ${job.candidates.length} candidates`, {
+      stage: 'extracting',
+    });
+  }
 
   const budget = budgetOf(job);
-  const candidates = job.candidates.slice(0, budget.maxCandidates);
+  const candidates = job.candidates.slice(
+    0,
+    Math.min(options?.candidateLimit ?? budget.maxCandidates, budget.maxCandidates),
+  );
+  const fetchTimeoutMs = options?.fetchTimeoutMs ?? 12_000;
 
   for (const candidate of candidates) {
     const latest = await prisma.searchJob.findUnique({
@@ -629,7 +639,7 @@ export async function runExtractStage(jobId: string, env: PipelineEnv): Promise<
 
     try {
       const page = await safeFetchText(candidate.url, {
-        timeoutMs: 12_000,
+        timeoutMs: fetchTimeoutMs,
         maxBytes: 2_000_000,
         maxRedirects: 5,
       });
@@ -1183,4 +1193,92 @@ export async function runEnrichStage(jobId: string, env: PipelineEnv): Promise<v
 export async function runKnowledgeStage(jobId: string): Promise<void> {
   await recordJobOutcome(jobId);
   await appendJobEvent(jobId, 'Supplier knowledge base updated', { stage: 'knowledge' });
+}
+
+const TERMINAL_STATUSES = new Set(['completed', 'completed_with_errors', 'failed', 'cancelled']);
+
+/** How many candidates one tick may extract (keeps serverless invocations short). */
+const TICK_CANDIDATE_BATCH = 2;
+const TICK_FETCH_TIMEOUT_MS = 8_000;
+
+/**
+ * Advance a job by one small step. Used in serverless (inline) deployments
+ * where no background worker exists: the dashboard polls this while a job
+ * runs, and each call performs a bounded amount of work.
+ */
+export async function runPipelineTick(
+  jobId: string,
+  env: PipelineEnv,
+): Promise<{ state: 'running' | 'done'; stage: string }> {
+  const job = await prisma.searchJob.findUnique({ where: { id: jobId } });
+  if (!job) return { state: 'done', stage: 'missing' };
+  if (TERMINAL_STATUSES.has(job.status)) return { state: 'done', stage: job.status };
+
+  // Recover candidates stranded mid-extraction by a previously interrupted invocation.
+  await prisma.jobCandidate.updateMany({
+    where: {
+      jobId,
+      status: 'extracting',
+      updatedAt: { lt: new Date(Date.now() - 90_000) },
+    },
+    data: { status: 'pending' },
+  });
+
+  try {
+    if (
+      ['queued', 'validating', 'fetching_source', 'extracting_identity'].includes(job.status) ||
+      (job.status === 'identifying_mpn' && job.resolveStatus !== 'identified')
+    ) {
+      await runResolveStage(jobId, env);
+      return { state: 'running', stage: 'resolve' };
+    }
+
+    if (job.status === 'identifying_mpn') {
+      await runDiscoverStage(jobId, env);
+      return { state: 'running', stage: 'discover' };
+    }
+
+    const [pending, total] = await Promise.all([
+      prisma.jobCandidate.count({ where: { jobId, status: { in: ['pending', 'extracting'] } } }),
+      prisma.jobCandidate.count({ where: { jobId } }),
+    ]);
+
+    if (job.status === 'discovering' && total === 0) {
+      await runDiscoverStage(jobId, env);
+      return { state: 'running', stage: 'discover' };
+    }
+
+    if ((job.status === 'discovering' || job.status === 'extracting') && pending > 0) {
+      await runExtractStage(jobId, env, {
+        candidateLimit: TICK_CANDIDATE_BATCH,
+        fetchTimeoutMs: TICK_FETCH_TIMEOUT_MS,
+      });
+      const stillPending = await prisma.jobCandidate.count({
+        where: { jobId, status: 'pending' },
+      });
+      if (stillPending > 0) return { state: 'running', stage: 'extract' };
+    }
+
+    // All candidates processed (or none): finish the job in one go —
+    // normalize, enrich, and knowledge are quick DB/API operations.
+    await runNormalizeStage(jobId, env);
+    await runEnrichStage(jobId, env);
+    await runKnowledgeStage(jobId);
+    const finished = await prisma.searchJob.findUnique({
+      where: { id: jobId },
+      select: { status: true },
+    });
+    return { state: 'done', stage: finished?.status ?? 'completed' };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Pipeline step failed';
+    const code = error instanceof AppError ? error.code : 'PIPELINE_ERROR';
+    await setJobStatus(jobId, 'failed', {
+      finishedAt: new Date(),
+      errorCode: code,
+      errorMessage: message,
+      progressJson: { stage: 'failed', percent: 100 },
+    });
+    await appendJobEvent(jobId, message, { stage: 'failed', level: 'error' });
+    return { state: 'done', stage: 'failed' };
+  }
 }

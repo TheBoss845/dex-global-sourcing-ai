@@ -27,10 +27,10 @@ async function checkRedis(redisUrl: string): Promise<boolean> {
 
 export async function GET() {
   const env = getServerEnv();
-  const checks: Record<string, 'ok' | 'error'> = {
+  const checks: Record<string, 'ok' | 'error' | 'skipped'> = {
     api: 'ok',
     database: 'error',
-    redis: 'error',
+    redis: 'skipped',
   };
 
   try {
@@ -40,9 +40,12 @@ export async function GET() {
     checks.database = 'error';
   }
 
-  checks.redis = (await checkRedis(env.REDIS_URL)) ? 'ok' : 'error';
+  // Serverless (inline queue) deployments run without Redis.
+  if (env.REDIS_URL?.trim()) {
+    checks.redis = (await checkRedis(env.REDIS_URL)) ? 'ok' : 'error';
+  }
 
-  const healthy = Object.values(checks).every((v) => v === 'ok');
+  const healthy = Object.values(checks).every((v) => v === 'ok' || v === 'skipped');
   return NextResponse.json(
     {
       status: healthy ? 'ok' : 'degraded',

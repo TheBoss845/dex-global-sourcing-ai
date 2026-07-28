@@ -1,5 +1,7 @@
 generator client {
   provider = "prisma-client-js"
+  // native: local dev · rhel-openssl-3.0.x: Netlify/AWS Lambda · debian: Render
+  binaryTargets = ["native", "rhel-openssl-3.0.x", "debian-openssl-3.0.x"]
 }
 
 datasource db {

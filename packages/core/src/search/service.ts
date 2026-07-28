@@ -5,9 +5,9 @@ import {
   type SearchJobStatus,
   prisma,
 } from '@dex/db';
-import { Queue } from 'bullmq';
 import { DEFAULT_JOB_BUDGET, type JobBudget } from '../budget.js';
 import { AppError, ErrorCodes } from '../errors.js';
+import { enqueue } from '../queue.js';
 import { assertSafePublicUrl } from '../security/url.js';
 import type { CreateSearchInput } from './schema.js';
 
@@ -15,17 +15,6 @@ export type CreateSearchContext = {
   redisUrl: string;
   orgId?: string;
 };
-
-function redisConnection(redisUrl: string) {
-  const url = new URL(redisUrl);
-  return {
-    host: url.hostname,
-    port: Number(url.port || 6379),
-    password: url.password || undefined,
-    username: url.username || undefined,
-    maxRetriesPerRequest: null as null,
-  };
-}
 
 export async function appendJobEvent(
   jobId: string,
@@ -86,22 +75,9 @@ export async function createSearchJob(
     data: { forceRefresh: job.forceRefresh },
   });
 
-  const queue = new Queue('jobs-resolve', { connection: redisConnection(ctx.redisUrl) });
-  try {
-    await queue.add(
-      'resolve',
-      { jobId: job.id },
-      {
-        jobId: `resolve-${job.id}`,
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 2000 },
-      },
-    );
-  } finally {
-    await queue.close();
-  }
+  // BullMQ mode enqueues for the background worker; inline (serverless) mode
+  // is a no-op — the dashboard's tick calls advance the pipeline instead.
+  await enqueue(ctx.redisUrl, 'jobs-resolve', 'resolve', { jobId: job.id }, `resolve-${job.id}`);
 
   return job;
 }

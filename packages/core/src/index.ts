@@ -24,7 +24,7 @@ export {
   appendJobEvent,
   setJobStatus,
 } from './search/service.js';
-export { createRedisConnection, enqueue } from './queue.js';
+export { createRedisConnection, enqueue, queueDriver } from './queue.js';
 export {
   runResolveStage,
   runDiscoverStage,
@@ -32,6 +32,7 @@ export {
   runNormalizeStage,
   runEnrichStage,
   runKnowledgeStage,
+  runPipelineTick,
 } from './pipeline/stages.js';
 export type { PipelineEnv } from './pipeline/stages.js';
 

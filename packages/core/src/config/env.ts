@@ -8,7 +8,9 @@ const boolFromString = z
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   DATABASE_URL: z.string().min(1),
-  REDIS_URL: z.string().min(1),
+  // Optional: serverless deployments (Netlify) run without Redis via QUEUE_DRIVER=inline.
+  REDIS_URL: z.string().optional().default(''),
+  QUEUE_DRIVER: z.enum(['bullmq', 'inline']).optional(),
   ARTIFACT_STORAGE: z.enum(['local', 's3', 'minio']).default('local'),
   ARTIFACT_LOCAL_PATH: z.string().default('.artifacts'),
   AI_ENABLED: boolFromString,

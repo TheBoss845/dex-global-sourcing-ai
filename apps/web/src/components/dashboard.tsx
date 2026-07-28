@@ -386,6 +386,11 @@ export function Dashboard() {
     let cancelled = false;
 
     async function poll() {
+      // Serverless deployments (no background worker) advance the pipeline here;
+      // on worker-backed deployments this returns immediately as a no-op.
+      if (job && !TERMINAL.has(job.status)) {
+        await fetch(`/api/searches/${job.id}/tick`, { method: 'POST' }).catch(() => undefined);
+      }
       const [jobRes, eventsRes, offersRes] = await Promise.all([
         fetch(`/api/searches/${job!.id}`),
         fetch(`/api/searches/${job!.id}/events`),

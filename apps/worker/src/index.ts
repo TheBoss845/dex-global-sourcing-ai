@@ -23,6 +23,14 @@ loadDotenv({ path: path.join(rootDir, '.env') });
 
 const env = loadEnv(process.env);
 
+if (!env.REDIS_URL?.trim()) {
+  console.error(
+    '[dex-worker] REDIS_URL is not set. The worker needs Redis (BullMQ). ' +
+      'Serverless deployments (Netlify) do not run this worker — they use QUEUE_DRIVER=inline instead.',
+  );
+  process.exit(1);
+}
+
 const pipelineEnv: PipelineEnv = {
   redisUrl: env.REDIS_URL,
   tavilyApiKey: env.TAVILY_API_KEY,
