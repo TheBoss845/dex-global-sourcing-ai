@@ -79,7 +79,7 @@ export function Dashboard() {
   const [cancelling, setCancelling] = useState(false);
   const [authRequired, setAuthRequired] = useState(false);
   const [authed, setAuthed] = useState(true);
-  const [emailInput, setEmailInput] = useState('lmfelcher@gmail.com');
+  const [emailInput, setEmailInput] = useState('');
   const [ownerCodeInput, setOwnerCodeInput] = useState('');
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
@@ -145,7 +145,7 @@ export function Dashboard() {
       try {
         data = (await res.json()) as typeof data;
       } catch {
-        setError(`Sign-in failed (HTTP ${res.status}). Check Render logs for dex-web.`);
+        setError(`Sign-in failed (HTTP ${res.status}). Check logs for dex-web.`);
         return;
       }
       if (!res.ok) {
@@ -282,8 +282,7 @@ export function Dashboard() {
           Global Sourcing Assistant
         </h1>
         <p className="mt-3 text-sm text-dex-muted">
-          Allowed: any <span className="font-medium text-dex-fg">@dex.com</span> email, plus{' '}
-          <span className="font-medium text-dex-fg">lmfelcher@gmail.com</span>.
+          Sign in with your email to access global supplier discovery.
         </p>
 
         {verificationSent ? (
@@ -326,7 +325,7 @@ export function Dashboard() {
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
               className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
-              placeholder="lmfelcher@gmail.com"
+              placeholder="your@email.com"
               required
               autoComplete="email"
             />
@@ -339,7 +338,7 @@ export function Dashboard() {
               value={ownerCodeInput}
               onChange={(e) => setOwnerCodeInput(e.target.value)}
               className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
-              placeholder="Only if you set AUTH_OWNER_CODE on Render"
+              placeholder="Leave blank or enter code"
               autoComplete="current-password"
             />
             <button
@@ -635,20 +634,14 @@ export function Dashboard() {
 }
 
 function statusPercent(status: string): number {
-  const map: Record<string, number> = {
-    queued: 3,
-    validating: 8,
-    fetching_source: 15,
-    extracting_identity: 22,
-    identifying_mpn: 30,
-    discovering: 42,
-    extracting: 60,
-    normalizing: 78,
-    enriching: 90,
-    completed: 100,
-    completed_with_errors: 100,
-    failed: 100,
-    cancelled: 100,
-  };
-  return map[status] ?? 10;
+  const stages = [
+    'queued',
+    'in_progress',
+    'identified',
+    'scraped',
+    'analyzed',
+    'completed',
+  ];
+  const idx = stages.indexOf(status.split('_')[0]);
+  return idx >= 0 ? ((idx + 1) / stages.length) * 100 : 50;
 }
