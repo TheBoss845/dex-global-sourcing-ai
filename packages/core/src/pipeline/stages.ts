@@ -1124,12 +1124,23 @@ export async function runExtractStage(
         }
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'extract failed';
+      // Network hiccups/timeouts get one more attempt on a later invocation
+      // (fresh time budget) before the candidate is written off.
+      const transient = /timeout|abort|network|ECONNRESET|ETIMEDOUT|fetch failed/i.test(message);
+      if (transient && !candidate.errorMessage) {
+        await prisma.jobCandidate.update({
+          where: { id: candidate.id },
+          data: { status: 'pending', errorMessage: `retry: ${message.slice(0, 150)}` },
+        });
+        return;
+      }
       await prisma.jobCandidate.update({
         where: { id: candidate.id },
         data: {
           status: 'failed',
           rejectionReason: 'fetch_failed',
-          errorMessage: error instanceof Error ? error.message : 'extract failed',
+          errorMessage: message.slice(0, 200),
         },
       });
     }
@@ -1538,7 +1549,8 @@ export async function runEnrichStage(jobId: string, env: PipelineEnv): Promise<v
     ...(finalOffers.length === 0
       ? {
           errorCode: ErrorCodes.ExtractionError,
-          errorMessage: 'No matching supplier offers found for the identified MPN',
+          errorMessage:
+            'No vendors passed verification for this part. Try adding the manufacturer name (e.g. "ABB 29088391"), double-checking the part number, or pasting a product-page link.',
         }
       : {}),
   });

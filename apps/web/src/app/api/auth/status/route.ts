@@ -5,6 +5,7 @@ import {
   sessionSecret,
   verifySessionToken,
 } from '@/lib/auth';
+import { emailSendingConfigured } from '@/lib/email';
 
 export async function GET(request: Request) {
   const required = authRequired();
@@ -24,6 +25,6 @@ export async function GET(request: Request) {
     email: session.ok ? session.email ?? null : null,
     signedIn: Boolean(session.ok),
     allowedDomain: '@dex.com',
-    emailVerificationRequired: process.env.AUTH_REQUIRE_EMAIL_VERIFICATION === 'true',
+    emailVerificationRequired: emailSendingConfigured(),
   });
 }

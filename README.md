@@ -2,6 +2,10 @@
 
 **Data Exchange Corporation (DEX)** — internal sourcing platform.
 
+> Engineers start here: **[docs/handoff.md](docs/handoff.md)** (system overview,
+> modes, env vars, guarantees) and **[docs/pipeline.md](docs/pipeline.md)**
+> (the ten-stage verification pipeline).
+
 Paste a **public product-page URL** → click **Find Suppliers** → get the identified MPN and about **10** worldwide supplier options (best-effort).
 
 ## Architecture

@@ -74,7 +74,9 @@ function startWorkers() {
 
   const handlers: Record<string, (jobId: string) => Promise<void>> = {
     'jobs-resolve': (jobId) => runResolveStage(jobId, pipelineEnv),
-    'jobs-discover': (jobId) => runDiscoverStage(jobId, pipelineEnv),
+    'jobs-discover': async (jobId) => {
+      await runDiscoverStage(jobId, pipelineEnv);
+    },
     'jobs-extract': (jobId) => runExtractStage(jobId, pipelineEnv),
     'jobs-normalize': (jobId) => runNormalizeStage(jobId, pipelineEnv),
     'jobs-enrich': (jobId) => runEnrichStage(jobId, pipelineEnv),
