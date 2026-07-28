@@ -100,14 +100,75 @@ export async function GET(request: Request, { params }: Params) {
 
   if (format === 'xlsx') {
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('DEX Sourcing Report');
+    workbook.creator = 'DEX Global Sourcing Assistant';
+    const sheet = workbook.addWorksheet('Vendor Report', {
+      views: [{ state: 'frozen', ySplit: 3 }],
+    });
+
     sheet.columns = headers.map((h) => ({
-      header: h.label,
       key: h.key,
-      width: h.key === 'productUrl' ? 50 : h.key === 'description' ? 40 : 16,
+      width:
+        h.key === 'productUrl'
+          ? 52
+          : h.key === 'description'
+            ? 42
+            : h.key === 'vendor'
+              ? 26
+              : h.key === 'partNumber'
+                ? 24
+                : 14,
     }));
-    sheet.getRow(1).font = { bold: true };
-    sheet.addRows(rows);
+
+    // Title banner
+    sheet.mergeCells(1, 1, 1, headers.length);
+    const title = sheet.getCell(1, 1);
+    title.value = 'DEX · Data Exchange Corporation — Global Sourcing Vendor Report';
+    title.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+    title.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A1F33' } };
+    title.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+    sheet.getRow(1).height = 28;
+
+    sheet.mergeCells(2, 1, 2, headers.length);
+    const subtitle = sheet.getCell(2, 1);
+    const partCount = new Set(rows.map((r) => r.partNumber)).size;
+    subtitle.value = `Generated ${new Date().toISOString().slice(0, 10)} · ${partCount} part${partCount === 1 ? '' : 's'} · up to 10 vendors each · prices best-effort from public listings`;
+    subtitle.font = { size: 10, color: { argb: 'FF5D6D7E' } };
+    subtitle.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+    // Header row
+    const headerRow = sheet.getRow(3);
+    headers.forEach((h, i) => {
+      const cell = headerRow.getCell(i + 1);
+      cell.value = h.label;
+      cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1D5BD8' } };
+      cell.alignment = { vertical: 'middle' };
+      cell.border = { bottom: { style: 'thin', color: { argb: 'FF0A1F33' } } };
+    });
+    headerRow.height = 20;
+
+    // Data rows with alternating background per part group
+    let previousPart = '';
+    let shade = false;
+    rows.forEach((row) => {
+      if (row.partNumber !== previousPart) {
+        shade = !shade;
+        previousPart = row.partNumber;
+      }
+      const excelRow = sheet.addRow(headers.map((h) => row[h.key]));
+      if (shade) {
+        excelRow.eachCell({ includeEmpty: true }, (cell) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F5F9' } };
+        });
+      }
+      if (row.warnings) {
+        excelRow.getCell(headers.findIndex((h) => h.key === 'warnings') + 1).font = {
+          color: { argb: 'FF935F00' },
+          size: 10,
+        };
+      }
+    });
+
     const buffer = await workbook.xlsx.writeBuffer();
     return new Response(buffer, {
       headers: {

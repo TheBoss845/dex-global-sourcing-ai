@@ -211,6 +211,7 @@ type BatchJobRow = {
   description: string | null;
   status: string;
   offerCount: number;
+  bestUsd?: number | null;
   errorMessage?: string | null;
 };
 
@@ -761,6 +762,23 @@ export function Dashboard() {
                 Paste a parts list or a product link. DEX finds up to 10 vendors per part —
                 with prices, stock, and lead times — and builds one downloadable report.
               </p>
+              <div className="mt-5 flex flex-wrap gap-2.5">
+                {[
+                  ['1', 'Paste your parts — any format'],
+                  ['2', 'AI verifies real vendors worldwide'],
+                  ['3', 'Download one Excel report'],
+                ].map(([step, label]) => (
+                  <div
+                    key={step}
+                    className="flex items-center gap-2 rounded-full border border-dex-border bg-dex-bg-elevated px-3.5 py-1.5 text-xs font-medium text-dex-fg shadow-card"
+                  >
+                    <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-dex-accent text-[10px] font-bold text-white">
+                      {step}
+                    </span>
+                    {label}
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
 
@@ -919,20 +937,28 @@ export function Dashboard() {
           {mode === 'batch' && batchJobs.length > 0 ? (
             <div className="dex-fade-up mt-6 rounded-2xl border border-dex-border bg-dex-bg-elevated shadow-card">
               <div className="flex flex-col gap-3 border-b border-dex-border p-5 md:flex-row md:items-center md:justify-between">
-                <div>
+                <div className="min-w-0 flex-1">
                   <h2 className="font-display text-lg font-semibold text-dex-brand">
-                    Vendor report · {batchJobs.length} parts
+                    Vendor report · {batchJobs.length} part{batchJobs.length === 1 ? '' : 's'}
                   </h2>
                   <p className="mt-0.5 text-sm text-dex-muted">
                     {batchDone
-                      ? 'Finished — download the consolidated report below.'
-                      : `Working… ${batchJobs.filter((j) => TERMINAL.has(j.status)).length} of ${batchJobs.length} parts done. Keep this page open.`}
+                      ? `Finished — ${batchJobs.reduce((sum, j) => sum + j.offerCount, 0)} vendor offers found. Download the report below.`
+                      : `Searching worldwide… ${batchJobs.filter((j) => TERMINAL.has(j.status)).length} of ${batchJobs.length} parts done. Keep this page open.`}
                   </p>
+                  <div className="mt-3 h-1.5 max-w-md overflow-hidden rounded-full bg-dex-border/60">
+                    <div
+                      className={`h-full rounded-full transition-all duration-700 ${batchDone ? 'bg-dex-ok' : 'dex-progress-active bg-dex-accent'}`}
+                      style={{
+                        width: `${Math.max(4, Math.round((batchJobs.filter((j) => TERMINAL.has(j.status)).length / batchJobs.length) * 100))}%`,
+                      }}
+                    />
+                  </div>
                 </div>
                 {batchDone && batchId ? (
-                  <div className="flex gap-2">
+                  <div className="flex shrink-0 gap-2">
                     <a
-                      className="rounded-lg bg-dex-accent px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110"
+                      className="rounded-lg bg-dex-accent px-4 py-2 text-sm font-semibold text-white shadow-card transition hover:brightness-110"
                       href={`/api/batches/${batchId}/export?format=xlsx`}
                     >
                       ↓ Excel report
@@ -954,20 +980,42 @@ export function Dashboard() {
                       <th className="px-4 py-3">Description</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Vendors</th>
+                      <th className="px-4 py-3">Best price</th>
                       <th className="px-4 py-3" />
                     </tr>
                   </thead>
                   <tbody>
                     {batchJobs.map((item) => (
-                      <tr key={item.id} className="border-t border-dex-border/70">
+                      <tr
+                        key={item.id}
+                        className="border-t border-dex-border/70 transition-colors hover:bg-dex-bg/60"
+                      >
                         <td className="px-5 py-3 font-medium text-dex-fg">{item.mpn}</td>
-                        <td className="max-w-[280px] truncate px-4 py-3 text-dex-muted">
+                        <td className="max-w-[260px] truncate px-4 py-3 text-dex-muted">
                           {item.description ?? '—'}
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={item.status} />
                         </td>
-                        <td className="px-4 py-3 text-dex-fg">{item.offerCount}</td>
+                        <td className="px-4 py-3">
+                          {item.offerCount > 0 ? (
+                            <span className="inline-flex items-center rounded-full bg-dex-ok-soft px-2.5 py-0.5 text-xs font-semibold text-dex-ok">
+                              {item.offerCount}
+                            </span>
+                          ) : TERMINAL.has(item.status) ? (
+                            <span className="text-dex-muted">0</span>
+                          ) : (
+                            <Spinner className="text-dex-accent" />
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-dex-fg">
+                          {item.bestUsd != null
+                            ? item.bestUsd.toLocaleString('en-US', {
+                                style: 'currency',
+                                currency: 'USD',
+                              })
+                            : '—'}
+                        </td>
                         <td className="px-4 py-3 text-right">
                           {TERMINAL.has(item.status) && item.offerCount > 0 ? (
                             <button
