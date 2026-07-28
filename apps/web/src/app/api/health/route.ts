@@ -47,7 +47,7 @@ export async function GET() {
     {
       status: healthy ? 'ok' : 'degraded',
       checks,
-      authRequired: process.env.NODE_ENV === 'production' || Boolean(process.env.DEX_ALLOWED_EMAILS?.trim()),
+      authRequired: process.env.NODE_ENV === 'production' || Boolean(process.env.AUTH_SECRET?.trim()),
     },
     { status: healthy ? 200 : 503 },
   );

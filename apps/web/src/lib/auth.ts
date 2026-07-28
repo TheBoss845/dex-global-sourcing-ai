@@ -33,33 +33,64 @@ export function sessionSecret(): string | null {
   return process.env.AUTH_SECRET?.trim() || process.env.DEX_API_KEY?.trim() || null;
 }
 
-export function allowedEmails(): string[] {
-  return (process.env.DEX_ALLOWED_EMAILS ?? '')
-    .split(',')
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
-}
-
 export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
+export function emailDomain(email: string): string {
+  const normalized = normalizeEmail(email);
+  const at = normalized.lastIndexOf('@');
+  if (at < 0) return '';
+  return normalized.slice(at + 1);
+}
+
+/** Only DEX company emails are allowed — never Gmail/Yahoo/etc. */
+export function isDexEmail(email: string): boolean {
+  const domain = emailDomain(email);
+  return domain === 'dex.com' || domain.endsWith('.dex.com');
+}
+
+/**
+ * Optional extra allowlist inside @dex.com.
+ * Examples: "alice@dex.com,bob@dex.com" or leave empty to allow any @dex.com email.
+ * Non-dex domains in this list are ignored.
+ */
+export function allowedEmails(): string[] {
+  return (process.env.DEX_ALLOWED_EMAILS ?? '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((entry) => entry === '@dex.com' || entry.endsWith('@dex.com') || entry.endsWith('.dex.com'));
+}
+
 export function isAllowedEmail(email: string): boolean {
   const normalized = normalizeEmail(email);
-  if (!normalized || !normalized.includes('@')) return false;
+  if (!normalized.includes('@')) return false;
+  if (!isDexEmail(normalized)) return false;
+
   const allow = allowedEmails();
-  if (allow.length === 0) return false;
+  // No extra list → any valid @dex.com address can sign in.
+  if (allow.length === 0) return true;
+
   if (allow.includes(normalized)) return true;
-  // Support domain allowlist entries like "@dex.com"
-  return allow.some((entry) => entry.startsWith('@') && normalized.endsWith(entry));
+  if (allow.includes('@dex.com')) return true;
+
+  const domain = emailDomain(normalized);
+  return allow.some((entry) => {
+    if (entry.startsWith('@')) {
+      const allowedDomain = entry.slice(1);
+      return domain === allowedDomain || domain.endsWith(`.${allowedDomain}`);
+    }
+    return false;
+  });
 }
 
 export function authRequired(): boolean {
-  return process.env.NODE_ENV === 'production' || allowedEmails().length > 0;
+  return process.env.NODE_ENV === 'production' || Boolean(process.env.AUTH_SECRET?.trim());
 }
 
 export function authConfigured(): boolean {
-  return Boolean(sessionSecret()) && allowedEmails().length > 0;
+  return Boolean(sessionSecret());
 }
 
 export async function createSessionToken(secret: string, email: string): Promise<string> {
