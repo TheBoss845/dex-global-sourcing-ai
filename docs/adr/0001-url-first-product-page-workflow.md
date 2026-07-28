@@ -13,4 +13,4 @@ Replace SupplyItNow-or-MPN input with **arbitrary public product-page URL** as t
 
 ## Status
 
-Awaiting product approval before implementation continues.
+Accepted and implemented in the URL-first v1.2 codebase.
