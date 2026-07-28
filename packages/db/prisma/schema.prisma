@@ -99,6 +99,7 @@ model SearchJob {
   id                       String            @id @default(cuid())
   orgId                    String?           @map("org_id")
   batchId                  String?           @map("batch_id")
+  quantity                 Int?
   inputType                SearchInputType   @map("input_type")
   inputValue               String            @map("input_value")
   rawSourceUrl             String?           @map("raw_source_url")

@@ -22,6 +22,37 @@ export async function GET(_request: Request, { params }: Params) {
       cheapest.map((row) => [row.jobId, row._min.priceUsd ? Number(row._min.priceUsd) : null]),
     );
 
+    // Price history: best USD from the most recent earlier search of the same part.
+    const previousBestByJob = new Map<string, number | null>();
+    await Promise.all(
+      jobs.map(async (job) => {
+        if (!job.part?.normalizedMpn) return;
+        try {
+          const previous = await prisma.searchJob.findFirst({
+            where: {
+              id: { not: job.id },
+              status: { in: ['completed', 'completed_with_errors'] },
+              createdAt: { lt: job.createdAt },
+              part: { normalizedMpn: job.part.normalizedMpn },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true },
+          });
+          if (!previous) return;
+          const prevBest = await prisma.offer.aggregate({
+            where: { jobId: previous.id, priceUsd: { not: null } },
+            _min: { priceUsd: true },
+          });
+          previousBestByJob.set(
+            job.id,
+            prevBest._min.priceUsd ? Number(prevBest._min.priceUsd) : null,
+          );
+        } catch {
+          // price history is best-effort — never block the batch view
+        }
+      }),
+    );
+
     return NextResponse.json({
       batchId: id,
       jobs: jobs.map((job) => ({
@@ -33,7 +64,9 @@ export async function GET(_request: Request, { params }: Params) {
         imageUrl: job.part?.imageUrl ?? null,
         status: job.status,
         offerCount: job.offerCount,
+        quantity: job.quantity ?? null,
         bestUsd: bestByJob.get(job.id) ?? null,
+        previousBestUsd: previousBestByJob.get(job.id) ?? null,
         errorMessage: job.errorMessage,
       })),
     });

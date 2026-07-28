@@ -127,6 +127,7 @@ export async function createMpnSearchJob(
     data: {
       orgId: ctx.orgId,
       batchId: ctx.batchId,
+      quantity: item.quantity ?? null,
       inputType: 'MPN',
       inputValue: item.mpn.trim(),
       forceRefresh: ctx.forceRefresh ?? false,

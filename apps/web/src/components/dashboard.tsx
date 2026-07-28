@@ -221,9 +221,28 @@ type BatchJobRow = {
   imageUrl?: string | null;
   status: string;
   offerCount: number;
+  quantity?: number | null;
   bestUsd?: number | null;
+  previousBestUsd?: number | null;
   errorMessage?: string | null;
 };
+
+function PriceChange({ current, previous }: { current: number; previous: number }) {
+  if (!Number.isFinite(previous) || previous <= 0) return null;
+  const delta = ((current - previous) / previous) * 100;
+  if (Math.abs(delta) < 1) return null;
+  const down = delta < 0;
+  return (
+    <span
+      className={`ml-1.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+        down ? 'bg-dex-ok-soft text-dex-ok' : 'bg-dex-warn-soft text-dex-warn'
+      }`}
+      title={`Previous best: $${previous.toFixed(2)}`}
+    >
+      {down ? '▼' : '▲'} {Math.abs(delta).toFixed(0)}%
+    </span>
+  );
+}
 
 export function Dashboard() {
   const [mode, setMode] = useState<'single' | 'batch'>('single');
@@ -1113,6 +1132,14 @@ export function Dashboard() {
                       >
                         CSV
                       </a>
+                      <a
+                        className="rounded-lg border border-dex-border px-4 py-2 text-sm font-medium text-dex-fg transition hover:bg-dex-bg"
+                        href={`/report/${batchId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Print / PDF
+                      </a>
                     </div>
                     {!batchDone ? (
                       <p className="text-[11px] text-dex-muted">Includes finished parts so far</p>
@@ -1126,6 +1153,7 @@ export function Dashboard() {
                     <tr className="text-[11px] font-semibold tracking-wide text-dex-muted uppercase">
                       <th className="px-5 py-3">Part number</th>
                       <th className="px-4 py-3">Description</th>
+                      <th className="px-4 py-3">Qty</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Vendors</th>
                       <th className="px-4 py-3">Best price</th>
@@ -1163,6 +1191,9 @@ export function Dashboard() {
                           ) : null}
                           <p className="truncate text-dex-muted">{item.description ?? '—'}</p>
                         </td>
+                        <td className="px-4 py-3 text-dex-muted">
+                          {item.quantity != null ? item.quantity.toLocaleString() : '—'}
+                        </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={item.status} />
                         </td>
@@ -1177,13 +1208,20 @@ export function Dashboard() {
                             <Spinner className="text-dex-accent" />
                           )}
                         </td>
-                        <td className="px-4 py-3 font-semibold text-dex-fg">
-                          {item.bestUsd != null
-                            ? item.bestUsd.toLocaleString('en-US', {
+                        <td className="px-4 py-3 font-semibold whitespace-nowrap text-dex-fg">
+                          {item.bestUsd != null ? (
+                            <>
+                              {item.bestUsd.toLocaleString('en-US', {
                                 style: 'currency',
                                 currency: 'USD',
-                              })
-                            : '—'}
+                              })}
+                              {item.previousBestUsd != null ? (
+                                <PriceChange current={item.bestUsd} previous={item.previousBestUsd} />
+                              ) : null}
+                            </>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right">
                           {TERMINAL.has(item.status) && item.offerCount > 0 ? (

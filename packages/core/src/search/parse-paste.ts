@@ -54,11 +54,15 @@ export function parsePastedPartsList(text: string): BatchItemInput[] {
         const manufacturer = catIdx > 0 ? cells.slice(0, catIdx).join(' ').trim() : undefined;
         const mpn = cells[catIdx + 1]!;
         const description = cells[catIdx + 2];
+        // SupplyItNow rows carry the requested quantity right after the description.
+        const qtyRaw = cells[catIdx + 3];
+        const qty = qtyRaw && /^\d{1,7}$/.test(qtyRaw) ? Number(qtyRaw) : undefined;
         if (looksLikePartNumber(mpn)) {
           pushItem(items, {
             mpn,
             description: description && description.length > 1 ? description : undefined,
             manufacturer: manufacturer || undefined,
+            quantity: qty && qty > 0 ? qty : undefined,
           });
           continue;
         }

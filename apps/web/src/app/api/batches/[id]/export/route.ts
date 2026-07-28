@@ -1,5 +1,35 @@
 import ExcelJS from 'exceljs';
 import { getBatchJobs, listJobOffers } from '@dex/core';
+import { prisma } from '@dex/db';
+
+/** Best USD price from the most recent earlier search of the same part. */
+async function previousBestUsd(job: {
+  id: string;
+  createdAt: Date;
+  part: { normalizedMpn: string } | null;
+}): Promise<number | null> {
+  if (!job.part?.normalizedMpn) return null;
+  try {
+    const previous = await prisma.searchJob.findFirst({
+      where: {
+        id: { not: job.id },
+        status: { in: ['completed', 'completed_with_errors'] },
+        createdAt: { lt: job.createdAt },
+        part: { normalizedMpn: job.part.normalizedMpn },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!previous) return null;
+    const best = await prisma.offer.aggregate({
+      where: { jobId: previous.id, priceUsd: { not: null } },
+      _min: { priceUsd: true },
+    });
+    return best._min.priceUsd ? Number(best._min.priceUsd) : null;
+  } catch {
+    return null;
+  }
+}
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -16,12 +46,15 @@ type ReportRow = {
   product: string;
   description: string;
   sourceDescription: string;
+  quantity: string;
   vendorRank: string;
   vendor: string;
   country: string;
   price: string;
   currency: string;
   priceUsd: string;
+  lineTotalUsd: string;
+  previousBestUsd: string;
   stock: string;
   leadTime: string;
   productUrl: string;
@@ -49,6 +82,9 @@ export async function GET(request: Request, { params }: Params) {
       aiDescription && rawDescription && aiDescription !== rawDescription ? rawDescription : '',
     );
     const offers = await listJobOffers(job.id, { includePossible: false, limit: 10 });
+    const quantity = job.quantity != null ? String(job.quantity) : '';
+    const prevBest = await previousBestUsd(job);
+    const previousBest = prevBest != null ? prevBest.toFixed(4) : '';
 
     if (offers.length === 0) {
       rows.push({
@@ -56,12 +92,15 @@ export async function GET(request: Request, { params }: Params) {
         product,
         description,
         sourceDescription,
+        quantity,
         vendorRank: '—',
         vendor: job.errorMessage ? `No vendors found (${job.errorMessage.slice(0, 80)})` : 'No vendors found',
         country: '',
         price: '',
         currency: '',
         priceUsd: '',
+        lineTotalUsd: '',
+        previousBestUsd: previousBest,
         stock: '',
         leadTime: '',
         productUrl: '',
@@ -72,17 +111,23 @@ export async function GET(request: Request, { params }: Params) {
     }
 
     offers.forEach((offer, index) => {
+      const usd = offer.priceUsd != null ? Number(offer.priceUsd) : null;
+      const lineTotal =
+        usd != null && job.quantity != null ? (usd * job.quantity).toFixed(2) : '';
       rows.push({
         partNumber,
         product,
         description,
         sourceDescription,
+        quantity,
         vendorRank: String(index + 1),
         vendor: sanitizeCell(offer.supplier.name ?? offer.supplier.domain),
         country: sanitizeCell(offer.supplier.country ?? ''),
         price: sanitizeCell(offer.price?.toString() ?? ''),
         currency: sanitizeCell(offer.currency ?? ''),
         priceUsd: sanitizeCell(offer.priceUsd?.toString() ?? ''),
+        lineTotalUsd: lineTotal,
+        previousBestUsd: index === 0 ? previousBest : '',
         stock: sanitizeCell(
           offer.stockQuantity?.toString() ?? offer.availability ?? '',
         ),
@@ -99,12 +144,15 @@ export async function GET(request: Request, { params }: Params) {
     { key: 'product', label: 'Product' },
     { key: 'description', label: 'Description' },
     { key: 'sourceDescription', label: 'Source Description' },
+    { key: 'quantity', label: 'Qty' },
     { key: 'vendorRank', label: 'Vendor #' },
     { key: 'vendor', label: 'Vendor' },
     { key: 'country', label: 'Country' },
     { key: 'price', label: 'Price' },
     { key: 'currency', label: 'Currency' },
     { key: 'priceUsd', label: 'Price (USD)' },
+    { key: 'lineTotalUsd', label: 'Line Total (USD)' },
+    { key: 'previousBestUsd', label: 'Prev Best (USD)' },
     { key: 'stock', label: 'Stock' },
     { key: 'leadTime', label: 'Lead Time' },
     { key: 'productUrl', label: 'Product URL' },

@@ -18,7 +18,8 @@ const PUBLIC_PATHS = new Set([
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (!pathname.startsWith('/api/')) {
+  const isReportPage = pathname.startsWith('/report/');
+  if (!pathname.startsWith('/api/') && !isReportPage) {
     return NextResponse.next();
   }
   if (PUBLIC_PATHS.has(pathname)) {
@@ -50,9 +51,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Signed-out visitors to report pages go to the sign-in screen.
+  if (isReportPage) {
+    return NextResponse.redirect(new URL('/', request.url));
+  }
+
   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 }
 
 export const config = {
-  matcher: ['/api/:path*'],
+  matcher: ['/api/:path*', '/report/:path*'],
 };

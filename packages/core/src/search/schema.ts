@@ -15,6 +15,7 @@ export const batchItemSchema = z.object({
     .max(80, 'Part number is too long'),
   description: z.string().trim().max(500).optional(),
   manufacturer: z.string().trim().max(120).optional(),
+  quantity: z.number().int().positive().max(1_000_000).optional(),
 });
 
 export const createBatchSchema = z.object({
