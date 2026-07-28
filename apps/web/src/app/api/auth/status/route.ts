@@ -24,6 +24,6 @@ export async function GET(request: Request) {
     email: session.ok ? session.email ?? null : null,
     signedIn: Boolean(session.ok),
     allowedDomain: '@dex.com',
-    extraAllowedConfigured: Boolean(process.env.DEX_EXTRA_ALLOWED_EMAILS?.trim()),
+    emailVerificationRequired: process.env.AUTH_REQUIRE_EMAIL_VERIFICATION === 'true',
   });
 }

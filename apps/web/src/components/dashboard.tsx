@@ -79,8 +79,7 @@ export function Dashboard() {
   const [cancelling, setCancelling] = useState(false);
   const [authRequired, setAuthRequired] = useState(false);
   const [authed, setAuthed] = useState(true);
-  const [emailInput, setEmailInput] = useState('lmfelcher@gmail.com');
-  const [ownerCodeInput, setOwnerCodeInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
   const [signedInEmail, setSignedInEmail] = useState<string | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [verificationSent, setVerificationSent] = useState(false);
@@ -129,10 +128,7 @@ export function Dashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({
-          email: emailInput.trim(),
-          ownerCode: ownerCodeInput.trim() || undefined,
-        }),
+        body: JSON.stringify({ email: emailInput.trim() }),
       });
       let data: {
         error?: string;
@@ -326,28 +322,16 @@ export function Dashboard() {
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
               className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
-              placeholder="lmfelcher@gmail.com"
+              placeholder="you@dex.com"
               required
               autoComplete="email"
-            />
-            <label className="block text-sm font-medium" htmlFor="owner-code">
-              Owner access code <span className="font-normal text-dex-muted">(optional)</span>
-            </label>
-            <input
-              id="owner-code"
-              type="password"
-              value={ownerCodeInput}
-              onChange={(e) => setOwnerCodeInput(e.target.value)}
-              className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5"
-              placeholder="Only if you set AUTH_OWNER_CODE on Render"
-              autoComplete="current-password"
             />
             <button
               type="submit"
               disabled={sendingLink}
               className="rounded-lg bg-dex-accent px-5 py-2.5 font-medium text-white disabled:opacity-50"
             >
-              {sendingLink ? 'Signing in…' : 'Continue'}
+              {sendingLink ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
         )}

@@ -28,9 +28,17 @@ async function hmacHex(secret: string, value: string): Promise<string> {
   return toHex(sig);
 }
 
-/** Signs cookies. Prefer AUTH_SECRET; fall back to DEX_API_KEY for older deploys. */
+/**
+ * Signs cookies. Prefer AUTH_SECRET; fall back to DEX_API_KEY, then to a
+ * derivation of DATABASE_URL (always present, contains a per-deploy password)
+ * so a missing AUTH_SECRET never bricks sign-in.
+ */
 export function sessionSecret(): string | null {
-  return process.env.AUTH_SECRET?.trim() || process.env.DEX_API_KEY?.trim() || null;
+  const explicit = process.env.AUTH_SECRET?.trim() || process.env.DEX_API_KEY?.trim();
+  if (explicit) return explicit;
+  const dbUrl = process.env.DATABASE_URL?.trim();
+  if (dbUrl) return `dex-session-${dbUrl}`;
+  return null;
 }
 
 export function normalizeEmail(raw: string): string {
