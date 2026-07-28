@@ -7,6 +7,10 @@
     "node": ">=20"
   },
   "scripts": {
-    "preinstall": "node -e \"const ua=process.env.npm_config_user_agent||''; if(!ua.includes('pnpm')){console.error('Use pnpm to install dependencies.'); process.exit(1)}\""
+    "preinstall": "node -e \"const ua=process.env.npm_config_user_agent||''; if(!ua.includes('pnpm')){console.error('Use pnpm to install dependencies.'); process.exit(1)}\"",
+    "typecheck:base": "tsc -p tooling/typescript/tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
   }
 }

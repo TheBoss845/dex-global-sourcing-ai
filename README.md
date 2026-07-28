@@ -18,3 +18,13 @@ Phase 0 foundation in progress. Implementation proceeds one checklist task at a 
 
 - Node.js 20+
 - pnpm 9+ (`packageManager` pinned in root `package.json`)
+- TypeScript base config: [`tsconfig.base.json`](tsconfig.base.json) — see [`tooling/typescript/README.md`](tooling/typescript/README.md)
+
+## Planned external providers
+
+| Concern | Provider | Env var (later) |
+|---------|----------|-----------------|
+| Web search | Tavily | `TAVILY_API_KEY` |
+| AI enrichment | OpenAI | `OPENAI_API_KEY` |
+
+Secrets belong in `.env` (gitignored), never in git.
