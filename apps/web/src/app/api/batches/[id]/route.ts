@@ -29,6 +29,7 @@ export async function GET(_request: Request, { params }: Params) {
         mpn: job.inputValue,
         // Prefer the AI-written description once enrichment has produced one.
         description: job.part?.descriptionClean ?? job.part?.title ?? null,
+        imageUrl: job.part?.imageUrl ?? null,
         status: job.status,
         offerCount: job.offerCount,
         bestUsd: bestByJob.get(job.id) ?? null,

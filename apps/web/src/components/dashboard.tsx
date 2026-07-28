@@ -29,6 +29,7 @@ type SearchJob = {
     brand?: string | null;
     descriptionClean?: string | null;
     title?: string | null;
+    imageUrl?: string | null;
   } | null;
   errorMessage?: string | null;
 };
@@ -215,6 +216,7 @@ type BatchJobRow = {
   id: string;
   mpn: string;
   description: string | null;
+  imageUrl?: string | null;
   status: string;
   offerCount: number;
   bestUsd?: number | null;
@@ -1018,7 +1020,25 @@ export function Dashboard() {
                         key={item.id}
                         className="border-t border-dex-border/70 transition-colors hover:bg-dex-bg/60"
                       >
-                        <td className="px-5 py-3 font-medium text-dex-fg">{item.mpn}</td>
+                        <td className="px-5 py-3 font-medium text-dex-fg">
+                          <div className="flex items-center gap-2.5">
+                            {item.imageUrl ? (
+                              <img
+                                src={item.imageUrl}
+                                alt=""
+                                width={36}
+                                height={36}
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
+                                className="h-9 w-9 shrink-0 rounded-md border border-dex-border bg-white object-contain p-0.5"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            ) : null}
+                            <span>{item.mpn}</span>
+                          </div>
+                        </td>
                         <td className="max-w-[260px] truncate px-4 py-3 text-dex-muted">
                           {item.description ?? '—'}
                         </td>
@@ -1181,7 +1201,22 @@ export function Dashboard() {
               <StageStepper status={job.status} />
 
               {(identifiedMpn || identifiedMfr) && job.resolveStatus === 'identified' ? (
-                <div className="mt-5 rounded-xl border border-dex-border bg-dex-bg p-4">
+                <div className="mt-5 flex gap-4 rounded-xl border border-dex-border bg-dex-bg p-4">
+                  {job.part?.imageUrl ? (
+                    <img
+                      src={job.part.imageUrl}
+                      alt={identifiedMpn ?? 'Product photo'}
+                      width={88}
+                      height={88}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="h-[88px] w-[88px] shrink-0 rounded-lg border border-dex-border bg-white object-contain p-1.5"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ) : null}
+                  <div className="min-w-0">
                   <p className="text-[11px] font-semibold tracking-wide text-dex-muted uppercase">
                     Identified part
                   </p>
@@ -1216,6 +1251,7 @@ export function Dashboard() {
                       {job.part.descriptionClean}
                     </p>
                   ) : null}
+                  </div>
                 </div>
               ) : isRunning ? (
                 <p className="mt-5 flex items-center gap-2 text-sm text-dex-muted">

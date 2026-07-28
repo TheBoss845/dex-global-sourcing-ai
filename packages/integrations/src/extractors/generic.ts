@@ -155,6 +155,60 @@ function cssPriceCandidate($: cheerio.CheerioAPI): string | undefined {
 }
 
 /**
+ * Extract the main product photo URL from a page (JSON-LD image, OpenGraph,
+ * twitter card, itemprop, or link rel). Returns an absolute http(s) URL.
+ */
+export function extractProductImage(html: string, baseUrl?: string): string | undefined {
+  const $ = cheerio.load(html);
+
+  const candidates: Array<string | undefined> = [];
+
+  // JSON-LD Product.image (string | string[] | ImageObject)
+  $('script[type="application/ld+json"]').each((_, el) => {
+    const rawText = $(el).contents().text();
+    if (!rawText.trim()) return;
+    try {
+      const parsed = JSON.parse(rawText) as unknown;
+      const queue: unknown[] = Array.isArray(parsed) ? [...parsed] : [parsed];
+      while (queue.length) {
+        const node = asRecord(queue.shift());
+        if (!node) continue;
+        if (Array.isArray(node['@graph'])) queue.push(...(node['@graph'] as unknown[]));
+        const types = Array.isArray(node['@type']) ? node['@type'] : [node['@type']];
+        if (!types.includes('Product')) continue;
+        const image = node.image;
+        if (typeof image === 'string') candidates.push(image);
+        else if (Array.isArray(image) && typeof image[0] === 'string') candidates.push(image[0]);
+        else if (typeof asRecord(image)?.url === 'string') candidates.push(asRecord(image)!.url as string);
+      }
+    } catch {
+      // ignore invalid JSON-LD
+    }
+  });
+
+  candidates.push(
+    $('meta[property="og:image:secure_url"]').attr('content')?.trim(),
+    $('meta[property="og:image"]').attr('content')?.trim(),
+    $('meta[name="twitter:image"]').attr('content')?.trim(),
+    $('[itemprop="image"]').attr('content')?.trim() || $('[itemprop="image"]').attr('src')?.trim(),
+    $('link[rel="image_src"]').attr('href')?.trim(),
+  );
+
+  for (const raw of candidates) {
+    if (!raw) continue;
+    try {
+      const resolved = baseUrl ? new URL(raw, baseUrl).toString() : new URL(raw).toString();
+      if (resolved.startsWith('http://') || resolved.startsWith('https://')) {
+        return resolved.slice(0, 600);
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+  return undefined;
+}
+
+/**
  * Generic HTTP extractor for long-tail supplier pages.
  *
  * Price trust order:

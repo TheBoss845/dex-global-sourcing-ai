@@ -15,6 +15,7 @@ import {
   TavilySearchProvider,
   extractGenericOffer,
   extractProductIdentity,
+  extractProductImage,
   extractSupplyItNowPart,
 } from '@dex/integrations';
 import { recordJobOutcome, suggestSuppliers } from '@dex/knowledge';
@@ -369,6 +370,7 @@ export async function runResolveStage(jobId: string, env: PipelineEnv): Promise<
       modelNumber: identified.modelNumber,
       supplierSku: identified.supplierSku,
       title: identified.title,
+      imageUrl: extractProductImage(page.body, page.finalUrl || sourceUrl) ?? null,
       descriptionRaw: identified.description,
       descriptionClean: identified.description,
       identificationEvidence: {
@@ -932,6 +934,19 @@ export async function runExtractStage(
         where: { id: candidate.id },
         data: { status: 'extracted', rejectionReason: null },
       });
+
+      // Batch (MPN-direct) parts have no source page — adopt the product photo
+      // from the first verified vendor listing.
+      if (!job.part.imageUrl) {
+        const vendorImage = extractProductImage(page.body, page.finalUrl || candidate.url);
+        if (vendorImage) {
+          await prisma.part.update({
+            where: { id: job.part.id },
+            data: { imageUrl: vendorImage },
+          });
+          job.part.imageUrl = vendorImage;
+        }
+      }
     } catch (error) {
       await prisma.jobCandidate.update({
         where: { id: candidate.id },
