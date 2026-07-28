@@ -138,7 +138,8 @@ export async function createMpnSearchJob(
       traceId: randomUUID(),
       budgetJson: { ...DEFAULT_JOB_BUDGET },
       progressJson: { stage: 'identifying_mpn', percent: 30 },
-      startedAt: new Date(),
+      // startedAt is set when discovery actually begins — in a large batch,
+      // parts wait in line and must not burn wall-clock budget while queued.
     },
   });
 

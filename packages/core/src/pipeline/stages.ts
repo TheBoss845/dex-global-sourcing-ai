@@ -429,6 +429,8 @@ export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise
 
   await setJobStatus(jobId, 'discovering', {
     progressJson: { stage: 'discovering', percent: 40 },
+    // MPN-direct (batch) jobs start their wall clock here, when work begins.
+    startedAt: job.startedAt ?? new Date(),
   });
   await appendJobEvent(jobId, 'Searching worldwide for exact MPN suppliers (best-effort)', {
     stage: 'discovering',
@@ -1407,6 +1409,33 @@ export async function runPipelineTick(
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Pipeline step failed';
     const code = error instanceof AppError ? error.code : 'PIPELINE_ERROR';
+
+    // Transient problems (network hiccups, search-provider 429s) retry on the
+    // next tick instead of failing the part. Permanent problems fail fast.
+    const permanent =
+      code === ErrorCodes.BudgetExceeded ||
+      code === ErrorCodes.ValidationError ||
+      code === ErrorCodes.SsrfBlocked ||
+      code === ErrorCodes.BannedDomain ||
+      code === ErrorCodes.NotFound;
+    const progress = (job.progressJson ?? {}) as Record<string, unknown>;
+    const tickErrors = Number(progress.tickErrors ?? 0);
+
+    if (!permanent && tickErrors < 2) {
+      await prisma.searchJob.update({
+        where: { id: jobId },
+        data: {
+          progressJson: { ...progress, tickErrors: tickErrors + 1 } as Prisma.InputJsonValue,
+        },
+      });
+      await appendJobEvent(
+        jobId,
+        `Temporary problem (${message.slice(0, 120)}) — retrying (attempt ${tickErrors + 2} of 3)`,
+        { stage: 'retrying', level: 'warn' },
+      );
+      return { state: 'running', stage: 'retrying' };
+    }
+
     await setJobStatus(jobId, 'failed', {
       finishedAt: new Date(),
       errorCode: code,

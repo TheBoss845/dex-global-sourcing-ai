@@ -10,17 +10,13 @@ export class TavilySearchProvider implements SearchProvider {
       throw new Error('TAVILY_API_KEY is not configured');
     }
 
-    const response = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: this.apiKey,
-        query,
-        search_depth: 'advanced',
-        include_answer: false,
-        max_results: options?.maxResults ?? 10,
-      }),
-    });
+    // One retry with backoff: batch reports fire many searches and
+    // transient 429/5xx responses must not fail a whole part.
+    let response = await this.request(query, options);
+    if (!response.ok && (response.status === 429 || response.status >= 500)) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      response = await this.request(query, options);
+    }
 
     if (!response.ok) {
       const body = await response.text();
@@ -39,5 +35,19 @@ export class TavilySearchProvider implements SearchProvider {
         content: row.content,
         score: row.score,
       }));
+  }
+
+  private request(query: string, options?: { maxResults?: number }): Promise<Response> {
+    return fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: this.apiKey,
+        query,
+        search_depth: 'advanced',
+        include_answer: false,
+        max_results: options?.maxResults ?? 10,
+      }),
+    });
   }
 }

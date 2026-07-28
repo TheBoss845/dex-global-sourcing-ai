@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ThemeToggle } from '@/components/theme-toggle';
 
 type SearchJob = {
@@ -238,6 +238,8 @@ export function Dashboard() {
   const [parseMethod, setParseMethod] = useState<string | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parseStage, setParseStage] = useState<string | null>(null);
+  const singleTickInFlight = useRef(false);
+  const batchTickInFlight = useRef(false);
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [offers, setOffers] = useState<OfferRow[]>([]);
   const [query, setQuery] = useState('');
@@ -383,7 +385,7 @@ export function Dashboard() {
       const res = await fetch('/api/searches', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim(), forceRefresh }),
+        body: JSON.stringify({ query: url.trim(), forceRefresh }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to start search');
@@ -482,10 +484,15 @@ export function Dashboard() {
 
     async function pollBatch() {
       // Serverless mode: advance up to two running parts per cycle.
-      const active = batchJobs.filter((j) => !TERMINAL.has(j.status)).slice(0, 2);
-      for (const item of active) {
-        if (cancelled) return;
-        await fetch(`/api/searches/${item.id}/tick`, { method: 'POST' }).catch(() => undefined);
+      // In-flight guard: never stack overlapping ticks on a slow step.
+      if (!batchTickInFlight.current) {
+        batchTickInFlight.current = true;
+        const active = batchJobs.filter((j) => !TERMINAL.has(j.status)).slice(0, 2);
+        for (const item of active) {
+          if (cancelled) break;
+          await fetch(`/api/searches/${item.id}/tick`, { method: 'POST' }).catch(() => undefined);
+        }
+        batchTickInFlight.current = false;
       }
       if (cancelled) return;
       const res = await fetch(`/api/batches/${batchId}`).catch(() => null);
@@ -528,8 +535,11 @@ export function Dashboard() {
     async function poll() {
       // Serverless deployments (no background worker) advance the pipeline here;
       // on worker-backed deployments this returns immediately as a no-op.
-      if (job && !TERMINAL.has(job.status)) {
+      // The in-flight guard prevents overlapping ticks when a step runs long.
+      if (job && !TERMINAL.has(job.status) && !singleTickInFlight.current) {
+        singleTickInFlight.current = true;
         await fetch(`/api/searches/${job.id}/tick`, { method: 'POST' }).catch(() => undefined);
+        singleTickInFlight.current = false;
       }
       const [jobRes, eventsRes, offersRes] = await Promise.all([
         fetch(`/api/searches/${job!.id}`),
@@ -1096,18 +1106,18 @@ export function Dashboard() {
             className={`rounded-2xl border border-dex-border bg-dex-bg-elevated p-5 shadow-card md:p-6 ${mode === 'single' ? '' : 'hidden'}`}
           >
             <label className="mb-2 block text-sm font-semibold text-dex-fg" htmlFor="product-url">
-              Product page URL
+              Product link, part number, or name
             </label>
             <div className="flex flex-col gap-3 md:flex-row">
               <input
                 id="product-url"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://www.sparkfun.com/products/127"
+                placeholder="LM7805CT · Raspberry Pi Zero · https://www.adafruit.com/product/2885"
                 className="w-full rounded-xl border border-dex-border bg-transparent px-4 py-3 text-[15px] text-dex-fg outline-none transition focus:border-dex-accent focus:ring-2 focus:ring-dex-accent/25"
                 required
-                type="url"
-                autoComplete="url"
+                type="text"
+                autoComplete="off"
                 spellCheck={false}
               />
               <button
@@ -1136,7 +1146,7 @@ export function Dashboard() {
             </div>
             <div className="mt-3 flex flex-col gap-2 text-xs text-dex-muted md:flex-row md:items-center md:justify-between">
               <p>
-                Works best on public product pages showing a manufacturer part number (MPN).
+                Paste a product page link, type a part number, or just name the product.
               </p>
               <label className="flex items-center gap-2">
                 <input

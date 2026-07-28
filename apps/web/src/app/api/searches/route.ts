@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
-import { AppError, createSearchJob, createSearchSchema } from '@dex/core';
+import { AppError, createMpnSearchJob, createSearchJob } from '@dex/core';
 import { getServerEnv } from '@/lib/server-env';
 import { rateLimit } from '@/lib/rate-limit';
+
+/** Does the input look like a web address rather than a part number/name? */
+function looksLikeUrl(raw: string): boolean {
+  if (/^https?:\/\//i.test(raw)) return true;
+  return !raw.includes(' ') && /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$)/i.test(raw);
+}
 
 export async function POST(request: Request) {
   try {
@@ -20,14 +26,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const json = await request.json();
-    const parsed = createSearchSchema.safeParse(json);
-    if (!parsed.success) {
+    const json = (await request.json()) as {
+      query?: string;
+      url?: string;
+      forceRefresh?: boolean;
+    };
+    const raw = (json.query ?? json.url ?? '').trim();
+    if (raw.length < 2 || raw.length > 300) {
       return NextResponse.json(
-        { error: parsed.error.issues[0]?.message ?? 'A valid product-page URL is required' },
+        { error: 'Enter a product link, part number, or product name' },
         { status: 400 },
       );
     }
+    const forceRefresh = Boolean(json.forceRefresh);
 
     const env = getServerEnv();
     if (!env.TAVILY_API_KEY) {
@@ -37,9 +48,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const job = await createSearchJob(parsed.data, {
-      redisUrl: env.REDIS_URL,
-    });
+    // Web address → read the page and identify the part.
+    // Anything else → treat as a part number / product name and search directly.
+    const job = looksLikeUrl(raw)
+      ? await createSearchJob(
+          { url: /^https?:\/\//i.test(raw) ? raw : `https://${raw}`, forceRefresh },
+          { redisUrl: env.REDIS_URL },
+        )
+      : await createMpnSearchJob(
+          { mpn: raw },
+          { redisUrl: env.REDIS_URL, forceRefresh },
+        );
 
     return NextResponse.json({ job }, { status: 201 });
   } catch (error) {
