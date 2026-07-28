@@ -65,6 +65,8 @@ type JobEvent = {
   createdAt: string;
 };
 
+const TERMINAL = new Set(['completed', 'completed_with_errors', 'failed', 'cancelled']);
+
 export function Dashboard() {
   const [url, setUrl] = useState('');
   const [forceRefresh, setForceRefresh] = useState(false);
@@ -74,6 +76,7 @@ export function Dashboard() {
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   async function startSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -94,6 +97,21 @@ export function Dashboard() {
       setError(err instanceof Error ? err.message : 'Search failed');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function cancelJob() {
+    if (!job?.id || TERMINAL.has(job.status)) return;
+    setCancelling(true);
+    try {
+      const res = await fetch(`/api/searches/${job.id}/cancel`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Cancel failed');
+      setJob(data.job ?? data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Cancel failed');
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -122,12 +140,17 @@ export function Dashboard() {
     }
 
     void poll();
+    if (job && TERMINAL.has(job.status)) {
+      return () => {
+        cancelled = true;
+      };
+    }
     const handle = setInterval(() => void poll(), 2000);
     return () => {
       cancelled = true;
       clearInterval(handle);
     };
-  }, [job?.id, query]);
+  }, [job?.id, job?.status, query]);
 
   const progressLabel = useMemo(() => {
     if (!job) return 'Idle';
@@ -136,6 +159,7 @@ export function Dashboard() {
 
   const identifiedMpn = job?.part?.originalMpn || job?.part?.rawMpn || job?.summaryJson?.mpn;
   const identifiedMfr = job?.part?.manufacturer || job?.summaryJson?.manufacturer;
+  const isRunning = Boolean(job && !TERMINAL.has(job.status));
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-8 md:px-8">
@@ -157,24 +181,43 @@ export function Dashboard() {
         onSubmit={startSearch}
         className="mb-6 rounded-xl border border-dex-border bg-dex-bg-elevated/90 p-4 shadow-sm backdrop-blur md:p-5"
       >
-        <label className="mb-2 block text-sm font-medium text-dex-fg">Product page URL</label>
+        <label className="mb-2 block text-sm font-medium text-dex-fg" htmlFor="product-url">
+          Product page URL
+        </label>
         <div className="flex flex-col gap-3 md:flex-row">
           <input
+            id="product-url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://www.digikey.com/... or any public product page"
+            placeholder="https://www.sparkfun.com/products/127"
             className="w-full rounded-lg border border-dex-border bg-transparent px-3 py-2.5 text-dex-fg outline-none ring-dex-accent focus:ring-2"
             required
             type="url"
+            autoComplete="url"
+            spellCheck={false}
           />
           <button
             type="submit"
-            disabled={submitting || !url.trim()}
-            className="rounded-lg bg-dex-accent px-5 py-2.5 font-medium text-white disabled:opacity-50"
+            disabled={submitting || !url.trim() || isRunning}
+            className="rounded-lg bg-dex-accent px-5 py-2.5 font-medium text-white transition hover:brightness-110 disabled:opacity-50"
           >
-            {submitting ? 'Starting…' : 'Find Suppliers'}
+            {submitting ? 'Starting…' : isRunning ? 'Working…' : 'Find Suppliers'}
           </button>
+          {isRunning ? (
+            <button
+              type="button"
+              onClick={() => void cancelJob()}
+              disabled={cancelling}
+              className="rounded-lg border border-dex-border px-4 py-2.5 text-sm font-medium text-dex-fg transition hover:bg-dex-bg disabled:opacity-50"
+            >
+              {cancelling ? 'Cancelling…' : 'Cancel'}
+            </button>
+          ) : null}
         </div>
+        <p className="mt-2 text-xs text-dex-muted">
+          Works best on public product pages that show a manufacturer part number (MPN). Bot-walled
+          distributor pages may need a different source URL.
+        </p>
         <label className="mt-3 flex items-center gap-2 text-sm text-dex-muted">
           <input
             type="checkbox"
@@ -224,6 +267,10 @@ export function Dashboard() {
                   ) : null}
                 </p>
               </div>
+            ) : isRunning ? (
+              <p className="mt-4 text-sm text-dex-muted">
+                Reading the product page and identifying the manufacturer part number…
+              </p>
             ) : null}
 
             {job.summaryJson?.summary ? (
@@ -235,7 +282,7 @@ export function Dashboard() {
 
             <div className="mt-4 h-2 overflow-hidden rounded bg-dex-border/60">
               <div
-                className="h-full bg-dex-accent transition-all"
+                className="h-full bg-dex-accent transition-all duration-500"
                 style={{ width: `${statusPercent(job.status)}%` }}
               />
             </div>
@@ -252,6 +299,9 @@ export function Dashboard() {
                   <div>{event.message}</div>
                 </li>
               ))}
+              {events.length === 0 ? (
+                <li className="text-dex-muted">Waiting for worker events…</li>
+              ) : null}
             </ul>
           </div>
         </section>
@@ -263,6 +313,9 @@ export function Dashboard() {
             <h2 className="text-lg font-medium">Supplier results</h2>
             <p className="text-sm text-dex-muted">
               {offers.length} shown · sorted by USD price (unpriced last)
+              {job?.status === 'completed_with_errors'
+                ? ' · some candidates failed (best-effort)'
+                : ''}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -271,17 +324,18 @@ export function Dashboard() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Filter table…"
               className="rounded-md border border-dex-border bg-transparent px-3 py-1.5 text-sm"
+              aria-label="Filter supplier results"
             />
-            {job ? (
+            {job && TERMINAL.has(job.status) && offers.length > 0 ? (
               <>
                 <a
-                  className="rounded-md border border-dex-border px-3 py-1.5 text-sm"
+                  className="rounded-md border border-dex-border px-3 py-1.5 text-sm hover:bg-dex-bg"
                   href={`/api/searches/${job.id}/export?format=csv`}
                 >
                   Export CSV
                 </a>
                 <a
-                  className="rounded-md border border-dex-border px-3 py-1.5 text-sm"
+                  className="rounded-md border border-dex-border px-3 py-1.5 text-sm hover:bg-dex-bg"
                   href={`/api/searches/${job.id}/export?format=xlsx`}
                 >
                   Export Excel
@@ -352,9 +406,13 @@ export function Dashboard() {
               {offers.length === 0 ? (
                 <tr>
                   <td className="px-2 py-6 text-dex-muted" colSpan={16}>
-                    {job
-                      ? 'No supplier rows yet — waiting for the pipeline…'
-                      : 'Paste a product-page URL and click Find Suppliers.'}
+                    {!job
+                      ? 'Paste a product-page URL and click Find Suppliers.'
+                      : isRunning
+                        ? 'No supplier rows yet — the pipeline is still working…'
+                        : job.status === 'failed'
+                          ? 'No suppliers found. Try another product URL with a clear manufacturer part number.'
+                          : 'No matching supplier offers for this MPN.'}
                   </td>
                 </tr>
               ) : null}

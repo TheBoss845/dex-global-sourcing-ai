@@ -184,8 +184,11 @@ export async function runResolveStage(jobId: string, env: PipelineEnv): Promise<
       rawMpn: identified.originalMpn,
       originalMpn: identified.originalMpn,
       normalizedMpn: identified.normalizedMpn,
-      manufacturer: identified.manufacturer,
-      brand: identified.brand,
+      manufacturer:
+        identified.manufacturer ||
+        identified.brand ||
+        brandHintFromUrl(page.finalUrl || sourceUrl),
+      brand: identified.brand || identified.manufacturer,
       modelNumber: identified.modelNumber,
       supplierSku: identified.supplierSku,
       title: identified.title,
@@ -350,17 +353,51 @@ export async function runDiscoverStage(jobId: string, env: PipelineEnv): Promise
     stage: 'discovering',
   });
 
+  // Always include the original source product page as a candidate so the user
+  // sees at least the supplier they started from when it validates.
+  if (job.finalSourceUrl || job.rawSourceUrl) {
+    const source = job.finalSourceUrl || job.rawSourceUrl!;
+    try {
+      const hostname = new URL(source).hostname;
+      const domain = extractRegistrableDomain(hostname);
+      await prisma.jobCandidate.upsert({
+        where: { jobId_url: { jobId, url: source } },
+        create: {
+          jobId,
+          url: source,
+          domain,
+          title: 'Original source product page',
+          snippet: 'Seeded from user-provided URL',
+          sourceType: 'scrape',
+          score: 1.5,
+          status: 'pending',
+        },
+        update: {
+          score: 1.5,
+          status: 'pending',
+        },
+      });
+    } catch {
+      // ignore bad source URL seeding
+    }
+  }
+
   await enqueue(env.redisUrl, 'jobs-extract', 'extract', { jobId }, `extract-${jobId}`);
 }
 
 function buildSearchQueries(mpn: string, manufacturer?: string | null): string[] {
-  const base = [`"${mpn}"`, `"${mpn}" buy`, `"${mpn}" distributor`, `"${mpn}" price`];
+  const base = [
+    `"${mpn}" buy`,
+    `"${mpn}" distributor`,
+    `"${mpn}" price datasheet -flight -airline -airport`,
+    `"${mpn}" "voltage regulator" OR IC OR semiconductor buy`,
+  ];
   if (manufacturer) {
-    base.push(`"${mpn}" "${manufacturer}"`);
-    base.push(`"${mpn}" "${manufacturer}" buy`);
+    base.unshift(`"${mpn}" "${manufacturer}" buy`);
+    base.push(`"${mpn}" "${manufacturer}" distributor`);
   }
-  base.push(`"${mpn}" supplier Europe`);
-  base.push(`"${mpn}" supplier Asia`);
+  base.push(`"${mpn}" supplier Europe -flight`);
+  base.push(`"${mpn}" supplier Asia distributor`);
   return base;
 }
 
@@ -369,15 +406,26 @@ function isLowValueDomain(domain: string, url: string): boolean {
     'youtube.com',
     'facebook.com',
     'twitter.com',
+    'x.com',
     'linkedin.com',
     'wikipedia.org',
     'reddit.com',
     'pinterest.com',
+    'flightaware.com',
+    'flightstats.com',
+    'skyscanner.com',
+    'kayak.com',
+    'expedia.com',
+    'booking.com',
+    'tripadvisor.com',
+    'virginatlantic.com',
+    'united.com',
   ];
   if (blocked.some((d) => domain === d || domain.endsWith(`.${d}`))) return true;
   const lower = url.toLowerCase();
   if (lower.endsWith('.pdf')) return true;
   if (domain.includes('datasheet') && !lower.includes('buy') && !lower.includes('cart')) return true;
+  if (/(^|\.)flight|airline|airport/.test(domain) && !lower.includes('electronic')) return true;
   return false;
 }
 
@@ -431,20 +479,66 @@ export async function runExtractStage(jobId: string, env: PipelineEnv): Promise<
         pageUrl: page.finalUrl || candidate.url,
       });
       const candidateMpn = draft.mpn || identity.mpn || '';
-      const exact = candidateMpn ? mpnsMatch(candidateMpn, job.part.normalizedMpn) : false;
-      const bodyHasExactToken = page.body.toUpperCase().includes(job.part.originalMpn.toUpperCase())
-        || normalizeMpn(page.body).includes(job.part.normalizedMpn);
+      const exactStructured = candidateMpn
+        ? mpnsMatch(candidateMpn, job.part.normalizedMpn)
+        : false;
+      const bodyHasExactToken =
+        page.body.toUpperCase().includes(job.part.originalMpn.toUpperCase()) ||
+        normalizeMpn(page.body).includes(job.part.normalizedMpn);
+      const urlHasExactToken = normalizeMpn(page.finalUrl || candidate.url).includes(
+        job.part.normalizedMpn,
+      );
+      const commerceSignals = lowerIncludesAny(page.body, [
+        'add to cart',
+        'add to basket',
+        'buy now',
+        'buy it now',
+        'in stock',
+        'quantity',
+        'unit price',
+        'price',
+      ]);
+      // Secondary accept: JS-heavy storefronts often lack JSON-LD but still sell the part.
+      const exactCommerce =
+        !exactStructured &&
+        bodyHasExactToken &&
+        urlHasExactToken &&
+        commerceSignals &&
+        !lowerIncludesAny(page.body, [
+          'compatible with',
+          'replacement for',
+          'substitute for',
+          'alternative to',
+        ]) &&
+        titlesCompatible(
+          job.part.title,
+          draft.description ?? identity.title,
+          job.part.originalMpn,
+        );
+      const exact = exactStructured || exactCommerce;
+      const matchConfidence = exactStructured ? 1 : exactCommerce ? 0.82 : 0;
+      const offerManufacturer =
+        draft.manufacturer ?? identity.manufacturer ?? identity.brand ?? null;
 
       if (!exact) {
         let reason = 'mpn_mismatch';
-        if (lowerIncludesAny(page.body, ['compatible with', 'replacement for', 'substitute for', 'alternative to'])) {
+        if (
+          lowerIncludesAny(page.body, [
+            'compatible with',
+            'replacement for',
+            'substitute for',
+            'alternative to',
+          ])
+        ) {
           reason = 'substitute';
         } else if (lowerIncludesAny(page.body, ['accessory', 'kit includes', 'evaluation board'])) {
           reason = 'accessory_or_kit';
         } else if (candidate.url.toLowerCase().endsWith('.pdf')) {
           reason = 'pdf_document';
-        } else if (bodyHasExactToken && !exact) {
+        } else if (bodyHasExactToken) {
           reason = 'mention_only';
+        } else if (!candidateMpn) {
+          reason = 'mpn_not_found';
         }
 
         await prisma.jobCandidate.update({
@@ -453,6 +547,45 @@ export async function runExtractStage(jobId: string, env: PipelineEnv): Promise<
             status: 'rejected',
             rejectionReason: reason,
             errorMessage: reason,
+          },
+        });
+        continue;
+      }
+
+      // Extra guard: reject substitute/accessory language even when MPN string matches.
+      if (
+        lowerIncludesAny(page.body, [
+          'compatible with',
+          'replacement for',
+          'substitute for',
+          'alternative to',
+          'replaces mpn',
+        ]) &&
+        !lowerIncludesAny(page.body, ['add to cart', 'buy now', 'add to basket'])
+      ) {
+        await prisma.jobCandidate.update({
+          where: { id: candidate.id },
+          data: {
+            status: 'rejected',
+            rejectionReason: 'substitute',
+            errorMessage: 'substitute',
+          },
+        });
+        continue;
+      }
+
+      if (
+        !manufacturersCompatible(
+          job.part.manufacturer ?? job.part.brand,
+          offerManufacturer,
+        )
+      ) {
+        await prisma.jobCandidate.update({
+          where: { id: candidate.id },
+          data: {
+            status: 'rejected',
+            rejectionReason: 'manufacturer_mismatch',
+            errorMessage: 'manufacturer_mismatch',
           },
         });
         continue;
@@ -487,7 +620,7 @@ export async function runExtractStage(jobId: string, env: PipelineEnv): Promise<
           jobId,
           supplierId: supplier.id,
           mpn: candidateMpn || job.part.originalMpn,
-          manufacturer: draft.manufacturer ?? identity.manufacturer ?? job.part.manufacturer,
+          manufacturer: offerManufacturer,
           supplierPartNumber: identity.supplierSku ?? draft.mpn ?? null,
           productUrl: page.finalUrl || candidate.url,
           price: parsed ? new Prisma.Decimal(parsed.amount) : null,
@@ -497,7 +630,7 @@ export async function runExtractStage(jobId: string, env: PipelineEnv): Promise<
           leadTime: draft.leadTime ?? null,
           moq: draft.moq ?? null,
           sourceType: 'scrape',
-          matchConfidence: 1,
+          matchConfidence,
           possibleMatch: false,
           reliabilityScore: profile?.reliabilityScore ?? null,
           description: draft.description ?? identity.title,
@@ -510,7 +643,7 @@ export async function runExtractStage(jobId: string, env: PipelineEnv): Promise<
           currency: parsed?.currency ?? draft.currency ?? null,
           stockQuantity: draft.stockQuantity ?? null,
           leadTime: draft.leadTime ?? null,
-          matchConfidence: 1,
+          matchConfidence,
           possibleMatch: false,
           reliabilityScore: profile?.reliabilityScore ?? null,
           description: draft.description ?? identity.title,
@@ -542,6 +675,70 @@ export async function runExtractStage(jobId: string, env: PipelineEnv): Promise<
 function lowerIncludesAny(text: string, needles: string[]): boolean {
   const lower = text.toLowerCase();
   return needles.some((n) => lower.includes(n));
+}
+
+function manufacturersCompatible(
+  expected?: string | null,
+  actual?: string | null,
+): boolean {
+  if (!expected?.trim() || !actual?.trim()) return true;
+  const left = expected.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const right = actual.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!left || !right) return true;
+  if (left.includes(right) || right.includes(left)) return true;
+  // Common abbreviation pairs
+  const aliases: Record<string, string[]> = {
+    TI: ['TEXASINSTRUMENTS', 'TEXASINSTRUMENT'],
+    TEXASINSTRUMENTS: ['TI', 'TEXASINSTRUMENT'],
+    ST: ['STMICROELECTRONICS', 'STMICRO'],
+    STMICROELECTRONICS: ['ST', 'STMICRO'],
+  };
+  const leftAliases = aliases[left] ?? [];
+  const rightAliases = aliases[right] ?? [];
+  if (leftAliases.includes(right) || rightAliases.includes(left)) return true;
+  return false;
+}
+
+function brandHintFromUrl(rawUrl: string): string | undefined {
+  try {
+    const domain = extractRegistrableDomain(new URL(rawUrl).hostname);
+    const label = domain.split('.')[0];
+    if (!label || label.length < 3) return undefined;
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  } catch {
+    return undefined;
+  }
+}
+
+function titlesCompatible(
+  sourceTitle?: string | null,
+  pageTitle?: string | null,
+  mpn?: string | null,
+): boolean {
+  if (mpn && pageTitle && normalizeMpn(pageTitle).includes(normalizeMpn(mpn))) {
+    return true;
+  }
+  if (!sourceTitle?.trim() || !pageTitle?.trim()) return false;
+  const tokenize = (value: string) =>
+    new Set(
+      value
+        .toUpperCase()
+        .replace(/[^A-Z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(
+          (token) =>
+            token.length > 2 &&
+            !['THE', 'AND', 'FOR', 'WITH', 'FROM', 'PCB', 'IC'].includes(token),
+        ),
+    );
+  const left = tokenize(sourceTitle);
+  const right = tokenize(pageTitle);
+  if (left.size === 0 || right.size === 0) return false;
+  let hits = 0;
+  for (const token of left) {
+    if (right.has(token)) hits += 1;
+  }
+  return hits >= 1 && hits / Math.min(left.size, right.size) >= 0.2;
 }
 
 function guessCountry(domain: string): string | null {
@@ -623,9 +820,14 @@ export async function runNormalizeStage(jobId: string, env: PipelineEnv): Promis
 
   for (const [, offers] of bySupplier) {
     const ranked = [...offers].sort((a, b) => {
+      const sourceUrl = job.finalSourceUrl || job.rawSourceUrl || '';
+      const aSource = sourceUrl && a.productUrl === sourceUrl ? 1 : 0;
+      const bSource = sourceUrl && b.productUrl === sourceUrl ? 1 : 0;
+      if (aSource !== bSource) return bSource - aSource;
       const aSuspicious = a.riskFlags.includes('ai_suspicious') ? 1 : 0;
       const bSuspicious = b.riskFlags.includes('ai_suspicious') ? 1 : 0;
       if (aSuspicious !== bSuspicious) return aSuspicious - bSuspicious;
+      if (b.matchConfidence !== a.matchConfidence) return b.matchConfidence - a.matchConfidence;
       const aUsd = a.priceUsd == null ? Number.POSITIVE_INFINITY : Number(a.priceUsd);
       const bUsd = b.priceUsd == null ? Number.POSITIVE_INFINITY : Number(b.priceUsd);
       return aUsd - bUsd;

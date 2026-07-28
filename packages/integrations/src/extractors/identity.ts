@@ -189,6 +189,15 @@ function pickBest(evidence: IdentityEvidence[], classification: IdentityClass): 
   return matches[0]?.value;
 }
 
+function looksLikePartNumber(token: string): boolean {
+  // Prefer tokens that look like MPNs: contain a digit, or mixed letter+digit patterns.
+  // Reject plain dictionary path segments like "alternatives", "products", "en".
+  if (!/[0-9]/.test(token)) return false;
+  if (!/[A-Za-z]/.test(token)) return false; // pure numeric SKUs handled elsewhere
+  if (token.length < 4) return false;
+  return true;
+}
+
 function readUrlPathHints(pageUrl: string | undefined, html: string): IdentityEvidence[] {
   if (!pageUrl) return [];
   const evidence: IdentityEvidence[] = [];
@@ -199,12 +208,16 @@ function readUrlPathHints(pageUrl: string | undefined, html: string): IdentityEv
     const upperHtml = html.toUpperCase();
     for (const seg of candidates) {
       const decoded = decodeURIComponent(seg).split('?')[0] ?? '';
-      // Skip pure numeric ids and very short tokens; prefer part-like tokens.
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,47}$/.test(decoded)) continue;
       if (/^\d+$/.test(decoded)) continue;
-      if (['product', 'products', 'product-detail', 'en', 'detail'].includes(decoded.toLowerCase())) {
+      if (
+        ['product', 'products', 'product-detail', 'en', 'detail', 'shop', 'buy'].includes(
+          decoded.toLowerCase(),
+        )
+      ) {
         continue;
       }
+      if (!looksLikePartNumber(decoded)) continue;
       if (!upperHtml.includes(decoded.toUpperCase())) continue;
       // Prefer longer path tokens over short family names in JSON-LD.
       const score = Math.min(0.9, 0.7 + decoded.length * 0.015);
