@@ -1,0 +1,102 @@
+# Render Blueprint — DEX Global Sourcing Assistant
+# https://render.com/docs/blueprint-spec
+#
+# In Render: New → Blueprint → connect TheBoss845/dex-global-sourcing-ai (main)
+
+services:
+  - type: web
+    name: dex-web
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: .
+    buildCommand: bash scripts/render-build.sh web
+    startCommand: bash scripts/render-start-web.sh
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dex-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: dex-redis
+          type: keyvalue
+          property: connectionString
+      - key: ARTIFACT_STORAGE
+        value: local
+      - key: ARTIFACT_LOCAL_PATH
+        value: .artifacts
+      - key: RESULT_LIMIT
+        value: "10"
+      - key: AI_ENABLED
+        value: "true"
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+
+  - type: worker
+    name: dex-worker
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: .
+    buildCommand: bash scripts/render-build.sh worker
+    startCommand: bash scripts/render-start-worker.sh
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dex-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: dex-redis
+          type: keyvalue
+          property: connectionString
+      - key: ARTIFACT_STORAGE
+        value: local
+      - key: ARTIFACT_LOCAL_PATH
+        value: .artifacts
+      - key: RESULT_LIMIT
+        value: "10"
+      - key: AI_ENABLED
+        value: "true"
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+
+  - type: keyvalue
+    name: dex-redis
+    plan: starter
+    region: oregon
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+databases:
+  - name: dex-postgres
+    plan: basic-256mb
+    region: oregon
+    databaseName: dex_sourcing
+    user: dex

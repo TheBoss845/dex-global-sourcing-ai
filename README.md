@@ -33,7 +33,7 @@ AI_ENABLED=true
 RESULT_LIMIT=10
 # Sign-in: only @dex.com emails; verification link is emailed via Resend
 AUTH_SECRET=long-random-string
-APP_BASE_URL=https://your-app.up.railway.app
+APP_BASE_URL=https://your-app.onrender.com
 RESEND_API_KEY=re_...
 EMAIL_FROM=DEX Sourcing <noreply@your-verified-domain.com>
 ```
@@ -74,6 +74,19 @@ Open **http://localhost:3000**
 4. Review ~10 supplier rows; export CSV/Excel if desired.
 
 If the page does not contain a confident MPN, the job fails with a clear explanation (no guessing).
+
+## Deploy on Render
+
+See **[docs/render.md](docs/render.md)**.
+
+Short version:
+
+1. [Render](https://dashboard.render.com) → **New** → **Blueprint**
+2. Connect `TheBoss845/dex-global-sourcing-ai` (`main`)
+3. Fill secrets when prompted: `TAVILY_API_KEY`, `OPENAI_API_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`, `APP_BASE_URL`
+4. After deploy: open `https://<your-web>.onrender.com/api/health`
+
+`render.yaml` creates Web + Worker + Postgres + Redis.
 
 ## Scripts
 

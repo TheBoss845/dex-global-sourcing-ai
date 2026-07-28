@@ -1,6 +1,8 @@
 export function appBaseUrl(request?: Request): string {
   const configured = process.env.APP_BASE_URL?.trim().replace(/\/$/, '');
   if (configured) return configured;
+  const renderExternal = process.env.RENDER_EXTERNAL_URL?.trim().replace(/\/$/, '');
+  if (renderExternal) return renderExternal;
   if (request) {
     const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
     const proto = request.headers.get('x-forwarded-proto') || 'http';
